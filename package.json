@@ -1,0 +1,65 @@
+{
+  "name": "haqly-payroll",
+  "version": "0.1.0",
+  "description": "HAQLY Payroll desktop application for Nigeria-first payroll processing.",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "db:generate": "drizzle-kit generate"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/reelquadry01/HaqlyPayroll.git"
+  },
+  "keywords": [
+    "electron",
+    "payroll",
+    "nigeria",
+    "sqlite",
+    "react"
+  ],
+  "author": "Codex",
+  "license": "MIT",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/reelquadry01/HaqlyPayroll/issues"
+  },
+  "homepage": "https://github.com/reelquadry01/HaqlyPayroll#readme",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.8.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "drizzle-orm": "^0.45.1",
+    "electron-log": "^5.4.3",
+    "pdf-lib": "^1.17.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.13.2",
+    "xlsx": "^0.18.5",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.2.0",
+    "@vitest/coverage-v8": "^4.1.1",
+    "drizzle-kit": "^0.31.10",
+    "electron": "^41.0.3",
+    "electron-vite": "^5.0.0",
+    "jsdom": "^29.0.1",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "vite": "^7.2.1",
+    "vitest": "^4.1.1"
+  }
+}

@@ -1,0 +1,49 @@
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); }
+button, input { font: inherit; }
+.app-shell { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
+.sidebar { background: linear-gradient(180deg, var(--navy-950), var(--navy-900)); color: white; padding: 28px 22px; display: flex; flex-direction: column; justify-content: space-between; gap: 24px; }
+.workspace { padding: 28px 32px 36px; display: flex; flex-direction: column; gap: 24px; }
+.topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.profile-chip { background: rgba(255,255,255,0.78); padding: 10px 14px; border-radius: 18px; display: flex; flex-direction: column; box-shadow: var(--shadow); }
+.profile-chip small, .muted { color: var(--ink-soft); }
+.nav-list { display: flex; flex-direction: column; gap: 10px; }
+.nav-item, .employee-tile, .secondary-button { border: none; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.nav-item { color: rgba(255,255,255,0.72); padding: 12px 14px; border-radius: 14px; }
+.nav-item.active, .nav-item:hover { background: rgba(255,255,255,0.1); color: white; }
+.sidebar-button, .primary-button { border: none; cursor: pointer; padding: 14px 18px; border-radius: 14px; background: linear-gradient(135deg, var(--navy-900), var(--navy-700)); color: white; box-shadow: var(--shadow); }
+.secondary-button { background: white; padding: 12px 16px; border-radius: 14px; box-shadow: var(--shadow); }
+.page-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.payroll-layout { grid-template-columns: minmax(280px, 420px) 1fr; }
+.surface-card, .hero-card, .login-card { background: rgba(255,255,255,0.86); padding: 24px; border-radius: 26px; box-shadow: var(--shadow); }
+.hero-card { grid-column: 1 / -1; }
+.section-label, .eyebrow { margin: 0 0 8px; font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft); }
+.stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+.stat-card { background: var(--paper); padding: 18px; border-radius: 18px; display: flex; flex-direction: column; gap: 8px; }
+.stat-card strong, h1, h2, h3 { font-family: Manrope, Inter, sans-serif; margin: 0; }
+.table-list, .detail-columns { display: grid; gap: 14px; }
+.table-row, .row-line, .task-card, .audit-item, .employee-tile { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; background: var(--paper); border-radius: 16px; }
+.task-card, .audit-item { flex-direction: column; align-items: flex-start; }
+.employee-tile { width: 100%; margin-top: 12px; }
+.employee-tile.selected { background: linear-gradient(135deg, rgba(13,37,93,0.08), rgba(159,212,200,0.18)); }
+.wizard-strip { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; margin-bottom: 18px; }
+.wizard-step { padding: 14px; border-radius: 16px; background: var(--paper); display: flex; gap: 10px; align-items: center; }
+.wizard-step.active { background: linear-gradient(135deg, rgba(13,37,93,0.12), rgba(159,212,200,0.24)); }
+.detail-card { display: flex; flex-direction: column; gap: 22px; }
+.detail-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.button-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.pill { padding: 8px 12px; border-radius: 999px; font-size: 0.78rem; text-transform: capitalize; background: var(--paper-deep); }
+.pill.due_soon { background: rgba(155,101,26,0.16); color: var(--warning); }
+.pill.overdue { background: rgba(165,58,58,0.14); color: var(--danger); }
+.pill.remitted, .pill.valid { background: rgba(47,106,94,0.16); color: var(--success); }
+.login-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at top left, rgba(159,212,200,0.26), transparent 36%), linear-gradient(135deg, #fdfdfc, #ece7df); }
+.login-card { width: min(480px, 100%); display: grid; gap: 14px; }
+.login-card label { display: grid; gap: 8px; color: var(--ink-soft); }
+.login-card input { border: none; background: var(--paper); border-radius: 14px; padding: 14px 16px; }
+.error-text { color: var(--danger); margin: 0; }
+.hint { color: var(--ink-soft); margin: 0; font-size: 0.9rem; }
+@media (max-width: 1100px) {
+  .app-shell { grid-template-columns: 1fr; }
+  .sidebar { padding-bottom: 18px; }
+  .page-grid, .payroll-layout, .stat-grid, .detail-columns { grid-template-columns: 1fr; }
+}

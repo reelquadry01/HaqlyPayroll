@@ -1,0 +1,18 @@
+:root {
+  --navy-950: #071a43;
+  --navy-900: #0d255d;
+  --navy-700: #234b8f;
+  --mint-400: #9fd4c8;
+  --mint-300: #cbe6df;
+  --paper: #f5f4f1;
+  --paper-deep: #ebe8e0;
+  --ink: #182033;
+  --ink-soft: #5e677a;
+  --danger: #a53a3a;
+  --warning: #9b651a;
+  --success: #2f6a5e;
+  --shadow: 0 22px 60px rgba(7, 26, 67, 0.08);
+  font-family: Inter, sans-serif;
+  color: var(--ink);
+  background: radial-gradient(circle at top left, #ffffff, var(--paper));
+}

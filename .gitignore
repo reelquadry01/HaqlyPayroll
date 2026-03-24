@@ -1,0 +1,9 @@
+node_modules
+out
+dist
+coverage
+data
+exports
+playwright-report
+test-results
+*.log
