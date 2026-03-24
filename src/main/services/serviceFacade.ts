@@ -58,6 +58,15 @@ function writeAuditLog(context: DatabaseContext, companyId: string, action: stri
     .run(randomUUID(), companyId, userId ?? null, action, entityType, entityId, details ? JSON.stringify(details) : null, new Date().toISOString())
 }
 
+function getUserRole(context: DatabaseContext, userId: string): Role {
+  const user = context.db.prepare('SELECT role FROM users WHERE id = ?').get(userId) as { role: Role } | undefined
+  if (!user) {
+    throw new Error('User not found')
+  }
+
+  return user.role
+}
+
 export function createServiceFacade(options: ServiceFacadeOptions) {
   const { database, exportDir } = options
   ensureDirectory(exportDir)
@@ -155,6 +164,10 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
       const run = database.db.prepare('SELECT company_id AS companyId, status FROM payroll_runs WHERE id = ?').get(runId) as { companyId: string; status: string } | undefined
       if (!run) throw new Error('Payroll run not found')
       if (run.status === 'approved') throw new Error('Payroll run already approved')
+      const role = getUserRole(database, userId)
+      if (role !== 'admin' && role !== 'approver') {
+        throw new Error('Permission denied: user cannot approve payroll')
+      }
 
       const approvedAt = new Date().toISOString()
       const snapshotRecord = database.db.prepare('SELECT snapshot_json AS snapshotJson FROM payroll_snapshots WHERE run_id = ?').get(runId) as { snapshotJson: string }
@@ -252,7 +265,15 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
     },
     inputs: {
       list(companyId: string, payPeriod: string) {
-        return database.db.prepare('SELECT employee_id AS employeeId, pay_period AS payPeriod, component_code AS componentCode, amount, source_period AS sourcePeriod, source_file AS sourceFile, import_batch_id AS importBatchId, validation_status AS validationStatus FROM payroll_inputs WHERE company_id = ? AND pay_period = ? ORDER BY employee_id ASC').all(companyId, payPeriod) as PayrollInputLine[]
+        const lines = database.db.prepare('SELECT employee_id AS employeeId, pay_period AS payPeriod, component_code AS componentCode, amount, source_period AS sourcePeriod, source_file AS sourceFile, import_batch_id AS importBatchId, validation_status AS validationStatus FROM payroll_inputs WHERE company_id = ? AND pay_period = ? ORDER BY employee_id ASC').all(companyId, payPeriod) as PayrollInputLine[]
+        const batches = database.db
+          .prepare('SELECT id, source_file AS sourceFile, status, created_at AS createdAt FROM import_batches WHERE company_id = ? ORDER BY created_at DESC')
+          .all(companyId) as Array<{ id: string; sourceFile: string; status: string; createdAt: string }>
+
+        return {
+          lines,
+          batches
+        }
       }
     },
     payrollRuns,

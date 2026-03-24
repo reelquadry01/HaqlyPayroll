@@ -76,6 +76,16 @@ export interface ExportResult {
   filePath: string
 }
 
+export interface InputCenterData {
+  lines: PayrollInputLine[]
+  batches: Array<{
+    id: string
+    sourceFile: string
+    status: string
+    createdAt: string
+  }>
+}
+
 export interface HaqlyApi {
   auth: {
     login(email: string, password: string): Promise<AuthSession> | AuthSession
@@ -90,7 +100,7 @@ export interface HaqlyApi {
     get(companyId: string): Promise<StructureData> | StructureData
   }
   inputs: {
-    list(companyId: string, payPeriod: string): Promise<PayrollInputLine[]> | PayrollInputLine[]
+    list(companyId: string, payPeriod: string): Promise<InputCenterData> | InputCenterData
   }
   payrollRuns: {
     generate(companyId: string, payPeriod: string): Promise<PayrollRunSummary> | PayrollRunSummary

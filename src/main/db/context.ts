@@ -245,12 +245,31 @@ export function seedDemoData(context: DatabaseContext): void {
   const hasCompany = context.db.prepare('SELECT id FROM companies LIMIT 1').get()
   if (hasCompany) return
 
-  const companyId = 'company-demo'
-  const policyId = insertTaxPolicy(context, companyId)
+  const companyConfigs = [
+    {
+      id: 'company-demo',
+      name: 'HAQLY Demo Industries',
+      taxState: 'Lagos',
+      payDate: 30
+    },
+    {
+      id: 'company-northwind',
+      name: 'Northwind Services Nigeria',
+      taxState: 'Abuja FCT',
+      payDate: 28
+    }
+  ] as const
 
-  context.db
-    .prepare('INSERT INTO companies (id, name, tax_state, payroll_frequency, currency, pay_date, active_tax_policy_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(companyId, 'HAQLY Demo Industries', 'Lagos', 12, 'NGN', 30, policyId)
+  const insertCompany = context.db.prepare(
+    'INSERT INTO companies (id, name, tax_state, payroll_frequency, currency, pay_date, active_tax_policy_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  )
+
+  for (const company of companyConfigs) {
+    const policyId = insertTaxPolicy(context, company.id)
+    insertCompany.run(company.id, company.name, company.taxState, 12, 'NGN', company.payDate, policyId)
+  }
+
+  const companyId = 'company-demo'
 
   const insertUser = context.db.prepare('INSERT INTO users (id, email, password_hash, role, display_name) VALUES (?, ?, ?, ?, ?)')
   for (const [id, email, role, displayName] of [
@@ -319,6 +338,38 @@ export function seedDemoData(context: DatabaseContext): void {
     ['emp-femi', '2026-04', 'COOP', 30_000, null]
   ] as const) {
     insertInput.run(randomUUID(), companyId, employeeId, payPeriod, componentCode, amount, sourcePeriod, 'april-2026-inputs.xlsx', importBatchId, 'valid')
+  }
+
+  const northwindCompanyId = 'company-northwind'
+  const insertNorthwindEmployee = context.db.prepare(
+    'INSERT INTO employees (id, company_id, employee_code, full_name, department, branch, role_title, hire_date, status, bank_name, account_number, tin, rsa_number, pfa_name, nhf_flag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  )
+
+  for (const employee of [
+    ['emp-zainab', northwindCompanyId, 'ABV-3001', 'Zainab Bello', 'Finance', 'Abuja', 'Finance Manager', '2021-01-11', 'active', 'Zenith Bank', '5550001112', 'TIN-ZAINAB', 'RSA-301', 'Crusader PFA', 1],
+    ['emp-emeka', northwindCompanyId, 'ABV-3002', 'Emeka Nwosu', 'Operations', 'Abuja', 'Operations Lead', '2022-06-09', 'active', 'Fidelity Bank', '5550001113', 'TIN-EMEKA', 'RSA-302', 'ARM PFA', 0]
+  ] as const) {
+    insertNorthwindEmployee.run(...employee)
+  }
+
+  for (const component of [
+    ['BASIC', 650_000],
+    ['TRANSPORT', 100_000],
+    ['MEAL', 45_000]
+  ] as const) {
+    context.db
+      .prepare('INSERT INTO employee_component_assignments (id, employee_id, component_code, amount, active_from) VALUES (?, ?, ?, ?, ?)')
+      .run(randomUUID(), 'emp-zainab', component[0], component[1], '2026-01-01')
+  }
+
+  for (const component of [
+    ['BASIC', 420_000],
+    ['TRANSPORT', 80_000],
+    ['MEAL', 30_000]
+  ] as const) {
+    context.db
+      .prepare('INSERT INTO employee_component_assignments (id, employee_id, component_code, amount, active_from) VALUES (?, ?, ?, ?, ?)')
+      .run(randomUUID(), 'emp-emeka', component[0], component[1], '2026-01-01')
   }
 }
 

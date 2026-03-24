@@ -38,6 +38,9 @@ button, input { font: inherit; }
 .pill.remitted, .pill.valid { background: rgba(47,106,94,0.16); color: var(--success); }
 .login-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at top left, rgba(159,212,200,0.26), transparent 36%), linear-gradient(135deg, #fdfdfc, #ece7df); }
 .login-card { width: min(480px, 100%); display: grid; gap: 14px; }
+.company-selector-list { display: grid; gap: 12px; }
+.company-selector-card { border: none; background: var(--paper); border-radius: 18px; padding: 18px; text-align: left; display: grid; gap: 6px; cursor: pointer; box-shadow: var(--shadow); }
+.company-selector-card:hover { background: linear-gradient(135deg, rgba(13,37,93,0.08), rgba(159,212,200,0.18)); }
 .login-card label { display: grid; gap: 8px; color: var(--ink-soft); }
 .login-card input { border: none; background: var(--paper); border-radius: 14px; padding: 14px 16px; }
 .error-text { color: var(--danger); margin: 0; }

@@ -90,7 +90,10 @@ function createFakeApi(role: 'approver' | 'reviewer'): HaqlyApi {
       }))
     },
     inputs: {
-      list: vi.fn(() => [{ employeeId: 'emp-chidi', payPeriod: '2026-04', componentCode: 'BONUS', amount: 120_000, validationStatus: 'valid' }])
+      list: vi.fn(() => ({
+        lines: [{ employeeId: 'emp-chidi', payPeriod: '2026-04', componentCode: 'BONUS', amount: 120_000, validationStatus: 'valid' }],
+        batches: [{ id: 'batch-apr-2026', sourceFile: 'april-2026-inputs.xlsx', status: 'validated', createdAt: '2026-04-28T10:00:00Z' }]
+      }))
     },
     payrollRuns: {
       generate: vi.fn(() => payrollRun),
@@ -132,6 +135,29 @@ describe('App', () => {
     window.haqlyApi = createFakeApi('approver')
   })
 
+  it('asks the user to choose a company before loading the main workspace when multiple companies exist', async () => {
+    const user = userEvent.setup()
+    window.haqlyApi = {
+      ...createFakeApi('approver'),
+      companies: {
+        list: vi.fn(() => [
+          { id: 'company-demo', name: 'HAQLY Demo Industries', taxState: 'Lagos', payrollFrequency: 12, currency: 'NGN', payDate: 30, activeTaxPolicyId: 'policy-2026-default' },
+          { id: 'company-northwind', name: 'Northwind Services Nigeria', taxState: 'Abuja FCT', payrollFrequency: 12, currency: 'NGN', payDate: 28, activeTaxPolicyId: 'policy-2026-default' }
+        ])
+      }
+    }
+
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    expect(await screen.findByText(/select company/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /northwind services nigeria/i }))
+    expect(await screen.findByText(/2026 nigeria tax pack active/i)).toBeInTheDocument()
+  })
+
   it('shows payroll review drill-down and approval controls for approvers', async () => {
     const user = userEvent.setup()
     render(<App />)
@@ -163,5 +189,21 @@ describe('App', () => {
 
     expect(await screen.findByText(/paye tax/i)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /approve & lock payroll/i })).not.toBeInTheDocument()
+  })
+
+  it('shows import batch health in the payroll inputs center', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+    await user.click(screen.getByRole('button', { name: /payroll inputs/i }))
+
+    expect(await screen.findByText(/april-2026-inputs\.xlsx/i)).toBeInTheDocument()
+    expect(screen.getByText(/validated/i)).toBeInTheDocument()
+    expect(screen.getByText(/bonus/i)).toBeInTheDocument()
   })
 })

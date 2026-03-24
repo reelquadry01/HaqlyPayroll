@@ -50,4 +50,62 @@ describe('service facade integration', () => {
     expect(existsSync(bankSchedule.filePath)).toBe(true)
     expect(existsSync(payslip.filePath)).toBe(true)
   })
+
+  it('rejects payroll approval for users without approver privileges', () => {
+    const database = createDatabaseContext({ filePath: ':memory:' })
+    bootstrapDatabase(database)
+    seedDemoData(database)
+
+    const services = createServiceFacade({
+      database,
+      exportDir
+    })
+
+    const company = services.companies.list()[0]
+    const draftRun = services.payrollRuns.generate(company.id, '2026-04')
+
+    expect(() => services.payrollRuns.approve(draftRun.id, 'user-reviewer')).toThrow(/permission/i)
+  })
+
+  it('seeds multiple companies so the desktop flow can present a real company selector', () => {
+    const database = createDatabaseContext({ filePath: ':memory:' })
+    bootstrapDatabase(database)
+    seedDemoData(database)
+
+    const services = createServiceFacade({
+      database,
+      exportDir
+    })
+
+    const companies = services.companies.list()
+
+    expect(companies).toHaveLength(2)
+    expect(companies.map((company) => company.name)).toEqual([
+      'HAQLY Demo Industries',
+      'Northwind Services Nigeria'
+    ])
+  })
+
+  it('returns import batches alongside validated payroll inputs for the input center', () => {
+    const database = createDatabaseContext({ filePath: ':memory:' })
+    bootstrapDatabase(database)
+    seedDemoData(database)
+
+    const services = createServiceFacade({
+      database,
+      exportDir
+    })
+
+    const inputs = services.inputs.list('company-demo', '2026-04')
+
+    expect(inputs.lines).toHaveLength(4)
+    expect(inputs.batches).toEqual([
+      {
+        id: 'batch-apr-2026',
+        sourceFile: 'april-2026-inputs.xlsx',
+        status: 'validated',
+        createdAt: '2026-04-28T10:00:00Z'
+      }
+    ])
+  })
 })

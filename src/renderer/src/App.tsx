@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import type { AuthSession, CompanyRecord, ComplianceData, DashboardData, PayrollRunDetail, ReportData, StructureData } from '@shared/api'
+import type { AuthSession, CompanyRecord, ComplianceData, DashboardData, InputCenterData, PayrollRunDetail, ReportData, StructureData } from '@shared/api'
 import { formatNaira } from '@shared/money'
 
 type NavKey = 'dashboard' | 'employees' | 'structures' | 'inputs' | 'payroll' | 'reports' | 'compliance'
@@ -10,7 +10,7 @@ interface AppData {
   dashboard: DashboardData
   employees: Array<Record<string, unknown>>
   structures: StructureData
-  inputs: Array<Record<string, unknown>>
+  inputs: InputCenterData
   payrollRun: PayrollRunDetail
   reports: ReportData
   compliance: ComplianceData
@@ -76,6 +76,7 @@ function LoginView({ onLogin, busy, error }: { onLogin: (email: string, password
 export function App() {
   const [session, setSession] = useState<AuthSession | null>(null)
   const [data, setData] = useState<AppData | null>(null)
+  const [availableCompanies, setAvailableCompanies] = useState<CompanyRecord[]>([])
   const [activeNav, setActiveNav] = useState<NavKey>('dashboard')
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -96,10 +97,13 @@ export function App() {
       setBusy(true)
       setError(undefined)
       const authSession = await window.haqlyApi.auth.login(email, password)
-      const company = (await window.haqlyApi.companies.list())[0]
-      const nextData = await loadAppData(company)
       setSession(authSession)
-      setData(nextData)
+      const companies = await window.haqlyApi.companies.list()
+      setAvailableCompanies(companies)
+      if (companies.length === 1) {
+        const nextData = await loadAppData(companies[0])
+        setData(nextData)
+      }
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : 'Unable to sign in')
     } finally {
@@ -114,8 +118,22 @@ export function App() {
     setData(refreshed)
   }
 
+  async function handleCompanySelection(company: CompanyRecord) {
+    setBusy(true)
+    try {
+      const nextData = await loadAppData(company)
+      setData(nextData)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (!session || !data) {
-    return <LoginView onLogin={handleLogin} busy={busy} error={error} />
+    if (!session) {
+      return <LoginView onLogin={handleLogin} busy={busy} error={error} />
+    }
+
+    return <CompanySelectionView companies={availableCompanies} busy={busy} onSelectCompany={handleCompanySelection} />
   }
 
   return (
@@ -167,6 +185,35 @@ export function App() {
         {activeNav === 'reports' ? <ReportsPage reports={data.reports} payrollRun={data.payrollRun} /> : null}
         {activeNav === 'compliance' ? <CompliancePage compliance={data.compliance} /> : null}
       </main>
+    </div>
+  )
+}
+
+function CompanySelectionView({
+  companies,
+  busy,
+  onSelectCompany
+}: {
+  companies: CompanyRecord[]
+  busy: boolean
+  onSelectCompany: (company: CompanyRecord) => void
+}) {
+  return (
+    <div className="login-screen">
+      <section className="login-card">
+        <p className="eyebrow">Select Company</p>
+        <h1>Choose the payroll workspace</h1>
+        <p className="muted">This installation supports multiple companies. Pick the one you want to work on for this session.</p>
+        <div className="company-selector-list">
+          {companies.map((company) => (
+            <button key={company.id} className="company-selector-card" disabled={busy} onClick={() => onSelectCompany(company)}>
+              <strong>{company.name}</strong>
+              <span>{company.taxState}</span>
+              <small>Pay date: day {company.payDate}</small>
+            </button>
+          ))}
+        </div>
+      </section>
     </div>
   )
 }
@@ -268,18 +315,32 @@ function StructuresPage({ structures }: { structures: StructureData }) {
   )
 }
 
-function InputsPage({ inputs }: { inputs: Array<Record<string, unknown>> }) {
+function InputsPage({ inputs }: { inputs: InputCenterData }) {
   return (
-    <section className="surface-card">
-      <p className="section-label">Variable Payroll Inputs</p>
-      {inputs.map((line, index) => (
-        <div key={`${String(line.employeeId)}-${index}`} className="table-row">
-          <span>{String(line.employeeId)}</span>
-          <span>{String(line.componentCode)}</span>
-          <span>{formatNaira(Number(line.amount))}</span>
-          <span className={`pill ${String(line.validationStatus) === 'valid' ? 'remitted' : 'overdue'}`}>{String(line.validationStatus)}</span>
-        </div>
-      ))}
+    <section className="page-grid">
+      <article className="surface-card">
+        <p className="section-label">Import Batches</p>
+        {inputs.batches.map((batch) => (
+          <div key={batch.id} className="table-row">
+            <div>
+              <strong>{batch.sourceFile}</strong>
+              <p className="muted">{new Date(batch.createdAt).toLocaleString()}</p>
+            </div>
+            <span className={`pill ${batch.status === 'validated' ? 'remitted' : 'overdue'}`}>{batch.status}</span>
+          </div>
+        ))}
+      </article>
+      <article className="surface-card">
+        <p className="section-label">Variable Payroll Inputs</p>
+        {inputs.lines.map((line, index) => (
+          <div key={`${String(line.employeeId)}-${index}`} className="table-row">
+            <span>{String(line.employeeId)}</span>
+            <span>{String(line.componentCode)}</span>
+            <span>{formatNaira(Number(line.amount))}</span>
+            <span className={`pill ${String(line.validationStatus) === 'valid' ? 'remitted' : 'overdue'}`}>{String(line.validationStatus)}</span>
+          </div>
+        ))}
+      </article>
     </section>
   )
 }
