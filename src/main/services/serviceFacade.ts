@@ -6,7 +6,7 @@ import { compareSync } from 'bcryptjs'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import * as XLSX from 'xlsx'
 
-import type { EmployeeUpdateInput } from '@shared/api'
+import type { EmployeeUpdateInput, PayComponentUpdateInput, PayrollInputSaveInput } from '@shared/api'
 import { formatNaira, roundCurrency } from '@shared/money'
 import type {
   EmployeeProfile,
@@ -371,6 +371,40 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
           policy: readActivePolicy(database, companyId),
           components: database.db.prepare('SELECT * FROM pay_components WHERE company_id = ? ORDER BY kind ASC, code ASC').all(companyId).map((row) => mapComponent(row as Record<string, unknown>))
         }
+      },
+      update(companyId: string, componentCode: string, payload: PayComponentUpdateInput, userId: string) {
+        const role = getUserRole(database, userId)
+        if (!['admin', 'payroll_officer', 'approver'].includes(role)) {
+          throw new Error('Permission denied: user cannot edit salary structures')
+        }
+
+        database.db
+          .prepare(
+            `UPDATE pay_components
+             SET name = ?, category = ?, recurring = ?, taxable = ?, pensionable = ?, nhf_applicable = ?, calculation_basis = ?, gl_code = ?
+             WHERE company_id = ? AND code = ?`
+          )
+          .run(
+            payload.name.trim(),
+            payload.category.trim(),
+            payload.recurring ? 1 : 0,
+            payload.taxable ? 1 : 0,
+            payload.pensionable ? 1 : 0,
+            payload.nhfApplicable ? 1 : 0,
+            payload.calculationBasis,
+            payload.glCode?.trim() || null,
+            companyId,
+            componentCode
+          )
+
+        writeAuditLog(database, companyId, 'pay_component.updated', 'pay_component', componentCode, userId, payload)
+
+        const updated = database.db.prepare('SELECT * FROM pay_components WHERE company_id = ? AND code = ?').get(companyId, componentCode)
+        if (!updated) {
+          throw new Error(`Unable to find pay component ${componentCode}`)
+        }
+
+        return mapComponent(updated as Record<string, unknown>)
       }
     },
     inputs: {
@@ -383,6 +417,39 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
         return {
           lines,
           batches
+        }
+      },
+      save(companyId: string, payload: PayrollInputSaveInput, userId: string) {
+        const role = getUserRole(database, userId)
+        if (!['admin', 'payroll_officer', 'approver'].includes(role)) {
+          throw new Error('Permission denied: user cannot save payroll inputs')
+        }
+
+        database.db
+          .prepare('INSERT INTO payroll_inputs (id, company_id, employee_id, pay_period, component_code, amount, source_period, source_file, import_batch_id, validation_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(
+            randomUUID(),
+            companyId,
+            payload.employeeId,
+            payload.payPeriod,
+            payload.componentCode,
+            payload.amount,
+            payload.sourcePeriod?.trim() || null,
+            'manual-entry',
+            null,
+            'valid'
+          )
+
+        writeAuditLog(database, companyId, 'payroll_input.saved', 'payroll_input', `${payload.employeeId}:${payload.componentCode}:${payload.payPeriod}`, userId, payload)
+
+        return {
+          employeeId: payload.employeeId,
+          payPeriod: payload.payPeriod,
+          componentCode: payload.componentCode,
+          amount: payload.amount,
+          sourcePeriod: payload.sourcePeriod?.trim() || undefined,
+          sourceFile: 'manual-entry',
+          validationStatus: 'valid' as const
         }
       }
     },

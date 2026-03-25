@@ -190,4 +190,80 @@ describe('service facade integration', () => {
     expect(updated.tin).toBe('TIN-CHIDI-NEW')
     expect(updated.rsaNumber).toBe('RSA-001-ALT')
   })
+
+  it('saves a manual variable payroll input and exposes it through the input center', () => {
+    const database = createDatabaseContext({ filePath: ':memory:' })
+    bootstrapDatabase(database)
+    seedDemoData(database)
+
+    const services = createServiceFacade({
+      database,
+      exportDir
+    })
+
+    const created = services.inputs.save(
+      'company-demo',
+      {
+        employeeId: 'emp-aisha',
+        payPeriod: '2026-04',
+        componentCode: 'BONUS',
+        amount: 55_000,
+        sourcePeriod: '2026-04'
+      },
+      'user-payroll'
+    )
+
+    const inputs = services.inputs.list('company-demo', '2026-04')
+
+    expect(created.componentCode).toBe('BONUS')
+    expect(created.amount).toBe(55_000)
+    expect(inputs.lines).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          employeeId: 'emp-aisha',
+          componentCode: 'BONUS',
+          amount: 55_000
+        })
+      ])
+    )
+  })
+
+  it('updates a pay component definition through the structures service for payroll operators', () => {
+    const database = createDatabaseContext({ filePath: ':memory:' })
+    bootstrapDatabase(database)
+    seedDemoData(database)
+
+    const services = createServiceFacade({
+      database,
+      exportDir
+    })
+
+    const updated = services.structures.update(
+      'company-demo',
+      'BONUS',
+      {
+        name: 'Quarterly Performance Bonus',
+        category: 'bonus',
+        recurring: false,
+        taxable: true,
+        pensionable: false,
+        nhfApplicable: false,
+        calculationBasis: 'fixed',
+        glCode: '5015'
+      },
+      'user-payroll'
+    )
+
+    const refreshed = services.structures.get('company-demo').components.find((component) => component.code === 'BONUS')
+
+    expect(updated.name).toBe('Quarterly Performance Bonus')
+    expect(updated.glCode).toBe('5015')
+    expect(refreshed).toEqual(
+      expect.objectContaining({
+        code: 'BONUS',
+        name: 'Quarterly Performance Bonus',
+        glCode: '5015'
+      })
+    )
+  })
 })

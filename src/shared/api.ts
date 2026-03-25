@@ -44,6 +44,17 @@ export interface StructureData {
   }>
 }
 
+export interface PayComponentUpdateInput {
+  name: string
+  category: string
+  recurring: boolean
+  taxable: boolean
+  pensionable: boolean
+  nhfApplicable: boolean
+  calculationBasis: string
+  glCode?: string
+}
+
 export interface PayrollRunSummary {
   id: string
   payPeriod?: string
@@ -85,6 +96,14 @@ export interface InputCenterData {
     status: string
     createdAt: string
   }>
+}
+
+export interface PayrollInputSaveInput {
+  employeeId: string
+  payPeriod: string
+  componentCode: string
+  amount: number
+  sourcePeriod?: string
 }
 
 export interface EmployeeRecord {
@@ -129,9 +148,11 @@ export interface HaqlyApi {
   }
   structures: {
     get(companyId: string): Promise<StructureData> | StructureData
+    update(companyId: string, componentCode: string, payload: PayComponentUpdateInput, userId: string): Promise<StructureData['components'][number]> | StructureData['components'][number]
   }
   inputs: {
     list(companyId: string, payPeriod: string): Promise<InputCenterData> | InputCenterData
+    save(companyId: string, payload: PayrollInputSaveInput, userId: string): Promise<PayrollInputLine> | PayrollInputLine
   }
   payrollRuns: {
     generate(companyId: string, payPeriod: string): Promise<PayrollRunSummary> | PayrollRunSummary

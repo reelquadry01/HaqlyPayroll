@@ -14,10 +14,12 @@ const api: HaqlyApi = {
     update: (companyId, employeeId, payload, userId) => ipcRenderer.invoke('haqly:employees:update', companyId, employeeId, payload, userId)
   },
   structures: {
-    get: (companyId) => ipcRenderer.invoke('haqly:structures:get', companyId)
+    get: (companyId) => ipcRenderer.invoke('haqly:structures:get', companyId),
+    update: (companyId, componentCode, payload, userId) => ipcRenderer.invoke('haqly:structures:update', companyId, componentCode, payload, userId)
   },
   inputs: {
-    list: (companyId, payPeriod) => ipcRenderer.invoke('haqly:inputs:list', companyId, payPeriod)
+    list: (companyId, payPeriod) => ipcRenderer.invoke('haqly:inputs:list', companyId, payPeriod),
+    save: (companyId, payload, userId) => ipcRenderer.invoke('haqly:inputs:save', companyId, payload, userId)
   },
   payrollRuns: {
     generate: (companyId, payPeriod) => ipcRenderer.invoke('haqly:payroll-runs:generate', companyId, payPeriod),

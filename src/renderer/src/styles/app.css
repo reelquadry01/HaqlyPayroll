@@ -20,6 +20,7 @@ button, input, select { font: inherit; }
 .hero-card { grid-column: 1 / -1; }
 .section-label, .eyebrow { margin: 0 0 8px; font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft); }
 .stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+.compact-stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 0; }
 .stat-card { background: var(--paper); padding: 18px; border-radius: 18px; display: flex; flex-direction: column; gap: 8px; }
 .stat-card strong, h1, h2, h3 { font-family: Manrope, Inter, sans-serif; margin: 0; }
 .table-list, .detail-columns { display: grid; gap: 14px; }
@@ -49,6 +50,9 @@ button, input, select { font: inherit; }
 .company-selector-card:hover { background: linear-gradient(135deg, rgba(13,37,93,0.08), rgba(159,212,200,0.18)); }
 .login-card label, .editor-grid label { display: grid; gap: 8px; color: var(--ink-soft); }
 .login-card input, .editor-grid input, .editor-grid select { border: 1px solid rgba(13,37,93,0.08); background: var(--paper); border-radius: 14px; padding: 14px 16px; }
+.toggle-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.toggle-card { display: flex; align-items: center; gap: 12px; padding: 16px 18px; border-radius: 16px; background: var(--paper); color: var(--ink); box-shadow: inset 0 0 0 1px rgba(13,37,93,0.06); }
+.toggle-card input { width: 18px; height: 18px; accent-color: var(--navy-800); }
 .error-text { color: var(--danger); margin: 0; }
 .hint { color: var(--ink-soft); margin: 0; font-size: 0.9rem; }
 .editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
@@ -60,5 +64,5 @@ button, input, select { font: inherit; }
 @media (max-width: 1100px) {
   .app-shell { grid-template-columns: 1fr; }
   .sidebar { padding-bottom: 18px; }
-  .page-grid, .payroll-layout, .employee-layout, .stat-grid, .detail-columns, .editor-grid, .employee-summary { grid-template-columns: 1fr; }
+  .page-grid, .payroll-layout, .employee-layout, .stat-grid, .detail-columns, .editor-grid, .employee-summary, .toggle-grid, .compact-stat-grid { grid-template-columns: 1fr; }
 }

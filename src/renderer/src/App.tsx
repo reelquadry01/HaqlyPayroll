@@ -8,6 +8,8 @@ import type {
   EmployeeRecord,
   EmployeeUpdateInput,
   InputCenterData,
+  PayComponentUpdateInput,
+  PayrollInputSaveInput,
   PayrollRunDetail,
   ReportData,
   StructureData
@@ -108,6 +110,34 @@ function createEmployeeDraft(employee: EmployeeRecord): EmployeeUpdateInput {
   }
 }
 
+function createComponentDraft(component: StructureData['components'][number]): PayComponentUpdateInput {
+  return {
+    name: component.name,
+    category: component.category,
+    recurring: component.recurring,
+    taxable: component.taxable,
+    pensionable: component.pensionable,
+    nhfApplicable: component.nhfApplicable,
+    calculationBasis: component.calculationBasis,
+    glCode: component.glCode ?? ''
+  }
+}
+
+function createInputDraft(
+  employees: EmployeeRecord[],
+  components: StructureData['components'],
+  previous?: PayrollInputSaveInput
+): PayrollInputSaveInput {
+  const manualComponents = components.filter((component) => !component.recurring || component.kind === 'deduction')
+  return {
+    employeeId: previous?.employeeId ?? employees[0]?.id ?? '',
+    payPeriod: previous?.payPeriod ?? '2026-04',
+    componentCode: previous?.componentCode ?? manualComponents[0]?.code ?? 'BONUS',
+    amount: 0,
+    sourcePeriod: previous?.sourcePeriod ?? '2026-04'
+  }
+}
+
 export function App() {
   const [session, setSession] = useState<AuthSession | null>(null)
   const [data, setData] = useState<AppData | null>(null)
@@ -196,6 +226,30 @@ export function App() {
     }
   }
 
+  async function handleInputSave(payload: PayrollInputSaveInput) {
+    if (!data || !session) return
+
+    try {
+      await window.haqlyApi.inputs.save(data.company.id, payload, session.id)
+      await refreshCompanyData(data.company)
+      setNotice({ tone: 'success', message: 'Payroll input saved.' })
+    } catch (actionError) {
+      setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to save payroll input.' })
+    }
+  }
+
+  async function handleStructureSave(componentCode: string, payload: PayComponentUpdateInput) {
+    if (!data || !session) return
+
+    try {
+      await window.haqlyApi.structures.update(data.company.id, componentCode, payload, session.id)
+      await refreshCompanyData(data.company)
+      setNotice({ tone: 'success', message: 'Salary component saved.' })
+    } catch (actionError) {
+      setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to save salary component.' })
+    }
+  }
+
   async function handleExport(kind: 'journal' | 'bank' | 'payslip') {
     if (!data) return
 
@@ -266,8 +320,8 @@ export function App() {
 
         {activeNav === 'dashboard' ? <DashboardPage data={data.dashboard} /> : null}
         {activeNav === 'employees' ? <EmployeesPage employees={data.employees} onSave={handleEmployeeUpdate} /> : null}
-        {activeNav === 'structures' ? <StructuresPage structures={data.structures} /> : null}
-        {activeNav === 'inputs' ? <InputsPage inputs={data.inputs} /> : null}
+        {activeNav === 'structures' ? <StructuresPage structures={data.structures} onSave={handleStructureSave} /> : null}
+        {activeNav === 'inputs' ? <InputsPage inputs={data.inputs} employees={data.employees} components={data.structures.components} onSave={handleInputSave} /> : null}
         {activeNav === 'payroll' ? (
           <PayrollPage
             run={data.payrollRun}
@@ -528,62 +582,307 @@ function EmployeesPage({
   )
 }
 
-function StructuresPage({ structures }: { structures: StructureData }) {
+function StructuresPage({
+  structures,
+  onSave
+}: {
+  structures: StructureData
+  onSave: (componentCode: string, payload: PayComponentUpdateInput) => Promise<void>
+}) {
+  const [selectedCode, setSelectedCode] = useState<string | null>(structures.components[0]?.code ?? null)
+  const [editingCode, setEditingCode] = useState<string | null>(null)
+  const [draft, setDraft] = useState<PayComponentUpdateInput | null>(structures.components[0] ? createComponentDraft(structures.components[0]) : null)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!structures.components.length) {
+      setSelectedCode(null)
+      setEditingCode(null)
+      setDraft(null)
+      return
+    }
+
+    if (!selectedCode || !structures.components.find((component) => component.code === selectedCode)) {
+      setSelectedCode(structures.components[0].code)
+    }
+  }, [selectedCode, structures.components])
+
+  const selectedComponent = structures.components.find((component) => component.code === selectedCode) ?? structures.components[0]
+  const activeComponent = structures.components.find((component) => component.code === editingCode) ?? selectedComponent
+
+  useEffect(() => {
+    if (activeComponent) {
+      setDraft(createComponentDraft(activeComponent))
+    }
+  }, [activeComponent])
+
+  if (!selectedComponent || !draft) {
+    return null
+  }
+
+  async function handleSubmit() {
+    if (!activeComponent) return
+    setSaving(true)
+    try {
+      await onSave(activeComponent.code, draft)
+      setSelectedCode(activeComponent.code)
+      setEditingCode(activeComponent.code)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
-    <section className="page-grid">
+    <section className="page-grid employee-layout">
       <article className="surface-card">
-        <p className="section-label">Salary Components</p>
-        {structures.components.map((component) => (
-          <div key={component.code} className="table-row">
-            <div>
-              <strong>{component.name}</strong>
-              <p className="muted">{component.code}</p>
+        <div className="section-header">
+          <div>
+            <p className="section-label">Salary Components</p>
+            <h3>Policy-ready component catalog</h3>
+          </div>
+          <span className="pill valid">{structures.components.length} components</span>
+        </div>
+        <div className="table-list">
+          {structures.components.map((component) => (
+            <div key={component.code} className={`table-row employee-row ${component.code === selectedCode ? 'selected' : ''}`}>
+              <button className="employee-summary" onClick={() => setSelectedCode(component.code)}>
+                <div>
+                  <strong>{component.name}</strong>
+                  <p className="muted">{component.code}</p>
+                </div>
+                <span>{component.kind}</span>
+                <span>{component.taxable ? 'Taxable' : 'Non-taxable'}</span>
+                <span>{component.glCode ?? 'Unmapped'}</span>
+              </button>
+              <button
+                className="secondary-button"
+                aria-label={`Edit ${component.name}`}
+                onClick={() => {
+                  setSelectedCode(component.code)
+                  setEditingCode(component.code)
+                  setDraft(createComponentDraft(component))
+                }}
+              >
+                Edit
+              </button>
             </div>
-            <span>{component.kind}</span>
-            <span>{component.taxable ? 'Taxable' : 'Non-taxable'}</span>
-            <span>{component.glCode ?? 'Unmapped'}</span>
-          </div>
-        ))}
+          ))}
+        </div>
       </article>
-      <article className="surface-card">
-        <p className="section-label">Tax Policy</p>
-        {structures.policy.bands.map((band) => (
-          <div key={band.bandOrder} className="row-line">
-            <strong>{band.bandOrder}</strong>
-            <span>{band.lowerLimit.toLocaleString()} - {band.upperLimit?.toLocaleString() ?? 'above'}</span>
-            <span>{band.ratePercent}%</span>
+      <article className="surface-card detail-card">
+        <div className="section-header">
+          <div>
+            <p className="section-label">Component Editor</p>
+            <h3>{activeComponent?.name ?? selectedComponent.name}</h3>
           </div>
-        ))}
+          <span className={`pill ${draft.taxable ? 'valid' : 'due_soon'}`}>{draft.taxable ? 'taxable' : 'non-taxable'}</span>
+        </div>
+
+        <div className="editor-grid">
+          <label>
+            Component Name
+            <input aria-label="Component Name" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+          </label>
+          <label>
+            Category
+            <input aria-label="Category" value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} />
+          </label>
+          <label>
+            GL Code
+            <input aria-label="GL Code" value={draft.glCode ?? ''} onChange={(event) => setDraft({ ...draft, glCode: event.target.value })} />
+          </label>
+          <label>
+            Calculation Basis
+            <select
+              aria-label="Calculation Basis"
+              value={draft.calculationBasis}
+              onChange={(event) => setDraft({ ...draft, calculationBasis: event.target.value })}
+            >
+              <option value="fixed">Fixed</option>
+              <option value="percentage">Percentage</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="toggle-grid">
+          <label className="toggle-card">
+            <input
+              aria-label="Recurring"
+              type="checkbox"
+              checked={draft.recurring}
+              onChange={(event) => setDraft({ ...draft, recurring: event.target.checked })}
+            />
+            <span>Recurring component</span>
+          </label>
+          <label className="toggle-card">
+            <input
+              aria-label="Taxable"
+              type="checkbox"
+              checked={draft.taxable}
+              onChange={(event) => setDraft({ ...draft, taxable: event.target.checked })}
+            />
+            <span>Taxable under PAYE</span>
+          </label>
+          <label className="toggle-card">
+            <input
+              aria-label="Pensionable"
+              type="checkbox"
+              checked={draft.pensionable}
+              onChange={(event) => setDraft({ ...draft, pensionable: event.target.checked })}
+            />
+            <span>Pensionable earning</span>
+          </label>
+          <label className="toggle-card">
+            <input
+              aria-label="NHF Applicable"
+              type="checkbox"
+              checked={draft.nhfApplicable}
+              onChange={(event) => setDraft({ ...draft, nhfApplicable: event.target.checked })}
+            />
+            <span>NHF applicable</span>
+          </label>
+        </div>
+
+        <div className="button-row">
+          <button className="primary-button" disabled={saving} onClick={handleSubmit}>
+            {saving ? 'Saving…' : 'Save Component'}
+          </button>
+        </div>
+
+        <div>
+          <p className="section-label">Tax Policy</p>
+          {structures.policy.bands.map((band) => (
+            <div key={band.bandOrder} className="row-line">
+              <strong>{band.bandOrder}</strong>
+              <span>{band.lowerLimit.toLocaleString()} - {band.upperLimit?.toLocaleString() ?? 'above'}</span>
+              <span>{band.ratePercent}%</span>
+            </div>
+          ))}
+        </div>
       </article>
     </section>
   )
 }
 
-function InputsPage({ inputs }: { inputs: InputCenterData }) {
+function InputsPage({
+  inputs,
+  employees,
+  components,
+  onSave
+}: {
+  inputs: InputCenterData
+  employees: EmployeeRecord[]
+  components: StructureData['components']
+  onSave: (payload: PayrollInputSaveInput) => Promise<void>
+}) {
+  const manualComponents = components.filter((component) => !component.recurring || component.kind === 'deduction')
+  const [draft, setDraft] = useState<PayrollInputSaveInput>(() => createInputDraft(employees, components))
+  const [saving, setSaving] = useState(false)
+  const totalInputValue = inputs.lines.reduce((sum, line) => sum + Number(line.amount), 0)
+
+  async function handleSubmit() {
+    setSaving(true)
+    try {
+      await onSave({
+        ...draft,
+        amount: Number(draft.amount)
+      })
+      setDraft(createInputDraft(employees, components, draft))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
-    <section className="page-grid">
-      <article className="surface-card">
-        <p className="section-label">Import Batches</p>
-        {inputs.batches.map((batch) => (
-          <div key={batch.id} className="table-row">
-            <div>
-              <strong>{batch.sourceFile}</strong>
-              <p className="muted">{new Date(batch.createdAt).toLocaleString()}</p>
-            </div>
-            <span className={`pill ${batch.status === 'validated' ? 'remitted' : 'overdue'}`}>{batch.status}</span>
+    <section className="page-grid employee-layout">
+      <article className="surface-card detail-card">
+        <div className="section-header">
+          <div>
+            <p className="section-label">Manual Input Entry</p>
+            <h3>Post variable payroll items</h3>
           </div>
-        ))}
+          <span className="pill due_soon">{inputs.lines.length} active lines</span>
+        </div>
+
+        <div className="stat-grid compact-stat-grid">
+          <StatCard label="Variable Items" value={String(inputs.lines.length)} />
+          <StatCard label="Input Value" value={formatNaira(totalInputValue)} />
+          <StatCard label="Batch Imports" value={String(inputs.batches.length)} />
+        </div>
+
+        <div className="editor-grid">
+          <label>
+            Employee
+            <select aria-label="Employee" value={draft.employeeId} onChange={(event) => setDraft({ ...draft, employeeId: event.target.value })}>
+              {employees.map((employee) => (
+                <option key={employee.id} value={employee.id}>{employee.fullName}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Component
+            <select aria-label="Component" value={draft.componentCode} onChange={(event) => setDraft({ ...draft, componentCode: event.target.value })}>
+              {manualComponents.map((component) => (
+                <option key={component.code} value={component.code}>{component.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Amount
+            <input aria-label="Amount" type="number" value={draft.amount} onChange={(event) => setDraft({ ...draft, amount: Number(event.target.value) })} />
+          </label>
+          <label>
+            Source Period
+            <input aria-label="Source Period" value={draft.sourcePeriod ?? ''} onChange={(event) => setDraft({ ...draft, sourcePeriod: event.target.value })} />
+          </label>
+        </div>
+
+        <div className="button-row">
+          <button className="primary-button" disabled={saving} onClick={handleSubmit}>
+            {saving ? 'Saving…' : 'Save Input'}
+          </button>
+          <button className="secondary-button" onClick={() => setDraft(createInputDraft(employees, components, draft))}>
+            Reset Form
+          </button>
+        </div>
       </article>
-      <article className="surface-card">
-        <p className="section-label">Variable Payroll Inputs</p>
-        {inputs.lines.map((line, index) => (
-          <div key={`${String(line.employeeId)}-${index}`} className="table-row">
-            <span>{String(line.employeeId)}</span>
-            <span>{String(line.componentCode)}</span>
-            <span>{formatNaira(Number(line.amount))}</span>
-            <span className={`pill ${String(line.validationStatus) === 'valid' ? 'remitted' : 'overdue'}`}>{String(line.validationStatus)}</span>
+
+      <article className="surface-card detail-card">
+        <div className="section-header">
+          <div>
+            <p className="section-label">Variable Payroll Inputs</p>
+            <h3>Live run adjustments</h3>
           </div>
-        ))}
+        </div>
+
+        {inputs.lines.map((line, index) => {
+          const employee = employees.find((candidate) => candidate.id === line.employeeId)
+          const component = components.find((candidate) => candidate.code === line.componentCode)
+          return (
+            <div key={`${String(line.employeeId)}-${index}`} className="table-row">
+              <div>
+                <strong>{employee?.fullName ?? String(line.employeeId)}</strong>
+                <p className="muted">{component?.name ?? String(line.componentCode)}</p>
+              </div>
+              <span>{line.sourcePeriod ?? 'current period'}</span>
+              <span>{formatNaira(Number(line.amount))}</span>
+              <span className={`pill ${String(line.validationStatus) === 'valid' ? 'remitted' : 'overdue'}`}>{String(line.validationStatus)}</span>
+            </div>
+          )
+        })}
+
+        <div>
+          <p className="section-label">Import Batches</p>
+          {inputs.batches.map((batch) => (
+            <div key={batch.id} className="table-row">
+              <div>
+                <strong>{batch.sourceFile}</strong>
+                <p className="muted">{new Date(batch.createdAt).toLocaleString()}</p>
+              </div>
+              <span className={`pill ${batch.status === 'validated' ? 'remitted' : 'overdue'}`}>{batch.status}</span>
+            </div>
+          ))}
+        </div>
       </article>
     </section>
   )

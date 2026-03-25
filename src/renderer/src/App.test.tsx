@@ -112,13 +112,29 @@ function createFakeApi(
     structures: {
       get: vi.fn(() => ({
         policy: { id: 'policy-2026-default', country: 'NG', name: 'Nigeria 2026 Default', code: 'NG-2026', taxYear: 2026, effectiveFrom: '2026-01-01', bands: [], deductionRules: [], reliefRules: [] },
-        components: [{ code: 'BASIC', name: 'Basic Salary', category: 'salary', kind: 'earning', recurring: true, taxable: true, pensionable: true, nhfApplicable: true, calculationBasis: 'fixed' }]
+        components: [
+          { code: 'BASIC', name: 'Basic Salary', category: 'salary', kind: 'earning', recurring: true, taxable: true, pensionable: true, nhfApplicable: true, calculationBasis: 'fixed' },
+          { code: 'BONUS', name: 'Performance Bonus', category: 'bonus', kind: 'earning', recurring: false, taxable: true, pensionable: false, nhfApplicable: false, calculationBasis: 'fixed' },
+          { code: 'OVERTIME', name: 'Overtime', category: 'variable', kind: 'earning', recurring: false, taxable: true, pensionable: false, nhfApplicable: false, calculationBasis: 'fixed' },
+          { code: 'COOP', name: 'Cooperative Deduction', category: 'custom', kind: 'deduction', recurring: false, taxable: false, pensionable: false, nhfApplicable: false, calculationBasis: 'fixed' }
+        ]
+      })),
+      update: vi.fn((companyId, componentCode, payload) => ({
+        companyId,
+        code: componentCode,
+        kind: componentCode === 'COOP' ? 'deduction' : 'earning',
+        ...payload
       }))
     },
     inputs: {
       list: vi.fn(() => ({
         lines: [{ employeeId: 'emp-chidi', payPeriod: '2026-04', componentCode: 'BONUS', amount: 120_000, validationStatus: 'valid' }],
         batches: [{ id: 'batch-apr-2026', sourceFile: 'april-2026-inputs.xlsx', status: 'validated', createdAt: '2026-04-28T10:00:00Z' }]
+      })),
+      save: vi.fn((companyId, payload) => ({
+        ...payload,
+        companyId,
+        validationStatus: 'valid'
       }))
     },
     payrollRuns: {
@@ -274,7 +290,7 @@ describe('App', () => {
 
     expect(await screen.findByText(/april-2026-inputs\.xlsx/i)).toBeInTheDocument()
     expect(screen.getByText(/validated/i)).toBeInTheDocument()
-    expect(screen.getByText(/bonus/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/performance bonus/i).length).toBeGreaterThan(0)
   })
 
   it('lets payroll operations users edit an employee record from the employee workspace', async () => {
@@ -330,5 +346,79 @@ describe('App', () => {
     expect(await screen.findByText(/export ready/i)).toBeInTheDocument()
     expect(screen.getAllByText(/journal\.csv/i).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: /reveal file/i }).length).toBeGreaterThan(0)
+  })
+
+  it('lets payroll operators add a manual variable input from the payroll inputs workspace', async () => {
+    const user = userEvent.setup()
+    const api = createFakeApi('approver')
+    api.inputs.list = vi
+      .fn()
+      .mockReturnValueOnce({
+        lines: [{ employeeId: 'emp-chidi', payPeriod: '2026-04', componentCode: 'BONUS', amount: 120_000, validationStatus: 'valid' }],
+        batches: [{ id: 'batch-apr-2026', sourceFile: 'april-2026-inputs.xlsx', status: 'validated', createdAt: '2026-04-28T10:00:00Z' }]
+      })
+      .mockReturnValue({
+        lines: [
+          { employeeId: 'emp-chidi', payPeriod: '2026-04', componentCode: 'BONUS', amount: 120_000, validationStatus: 'valid' },
+          { employeeId: 'emp-aisha', payPeriod: '2026-04', componentCode: 'BONUS', amount: 55_000, validationStatus: 'valid' }
+        ],
+        batches: [{ id: 'batch-apr-2026', sourceFile: 'april-2026-inputs.xlsx', status: 'validated', createdAt: '2026-04-28T10:00:00Z' }]
+      })
+    window.haqlyApi = api
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+    await user.click(screen.getByRole('button', { name: /payroll inputs/i }))
+    await user.selectOptions(screen.getByLabelText(/employee/i), 'emp-aisha')
+    await user.selectOptions(screen.getByLabelText(/component/i), 'BONUS')
+    await user.clear(screen.getByLabelText(/amount/i))
+    await user.type(screen.getByLabelText(/amount/i), '55000')
+    await user.click(screen.getByRole('button', { name: /save input/i }))
+
+    expect(api.inputs.save).toHaveBeenCalledWith(
+      'company-demo',
+      expect.objectContaining({
+        employeeId: 'emp-aisha',
+        componentCode: 'BONUS',
+        amount: 55_000
+      }),
+      'user-approver'
+    )
+    expect(await screen.findByText(/payroll input saved/i)).toBeInTheDocument()
+  })
+
+  it('lets payroll operators edit a salary component from the structures workspace', async () => {
+    const user = userEvent.setup()
+    const api = createFakeApi('approver')
+    window.haqlyApi = api
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+    await user.click(screen.getByRole('button', { name: /^structures$/i }))
+    await user.click(screen.getByRole('button', { name: /edit performance bonus/i }))
+    await user.clear(screen.getByLabelText(/component name/i))
+    await user.type(screen.getByLabelText(/component name/i), 'Quarterly Performance Bonus')
+    await user.clear(screen.getByLabelText(/gl code/i))
+    await user.type(screen.getByLabelText(/gl code/i), '5015')
+    await user.click(screen.getByRole('button', { name: /save component/i }))
+
+    expect(api.structures.update).toHaveBeenCalledWith(
+      'company-demo',
+      'BONUS',
+      expect.objectContaining({
+        name: 'Quarterly Performance Bonus',
+        glCode: '5015'
+      }),
+      'user-approver'
+    )
+    expect(await screen.findByText(/salary component saved/i)).toBeInTheDocument()
   })
 })
