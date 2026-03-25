@@ -50,21 +50,31 @@ const navItems: Array<{ key: NavKey; label: string }> = [
   { key: 'compliance', label: 'Compliance' }
 ]
 
-async function loadAppData(company: CompanyRecord): Promise<AppData> {
+function shiftPayPeriod(payPeriod: string, delta: number): string {
+  const [year, month] = payPeriod.split('-').map(Number)
+  const date = new Date(year, month - 1 + delta, 1)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
+
+function buildPayPeriodOptions(runPeriods: string[], selectedPayPeriod: string): string[] {
+  return Array.from(new Set([selectedPayPeriod, shiftPayPeriod(selectedPayPeriod, -1), shiftPayPeriod(selectedPayPeriod, 1), ...runPeriods])).sort().reverse()
+}
+
+async function loadAppData(company: CompanyRecord, payPeriod: string): Promise<AppData> {
   const [dashboard, employees, structures, inputs, loans, runs] = await Promise.all([
-    window.haqlyApi.dashboard.get(company.id, '2026-04'),
+    window.haqlyApi.dashboard.get(company.id, payPeriod),
     window.haqlyApi.employees.list(company.id),
     window.haqlyApi.structures.get(company.id),
-    window.haqlyApi.inputs.list(company.id, '2026-04'),
+    window.haqlyApi.inputs.list(company.id, payPeriod),
     window.haqlyApi.loans.list(company.id),
     window.haqlyApi.payrollRuns.list(company.id)
   ])
 
-  const payrollSummary = runs[0] ?? (await window.haqlyApi.payrollRuns.generate(company.id, '2026-04'))
+  const payrollSummary = runs.find((run) => run.payPeriod === payPeriod) ?? (await window.haqlyApi.payrollRuns.generate(company.id, payPeriod))
   const [payrollRun, reports, compliance] = await Promise.all([
     window.haqlyApi.payrollRuns.getById(payrollSummary.id),
-    window.haqlyApi.reports.get(company.id, '2026-04'),
-    window.haqlyApi.compliance.get(company.id, '2026-04')
+    window.haqlyApi.reports.get(company.id, payPeriod),
+    window.haqlyApi.compliance.get(company.id, payPeriod)
   ])
 
   return { company, dashboard, employees, structures, inputs, loans, payrollRun, reports, compliance }
@@ -131,6 +141,7 @@ function createComponentDraft(component: StructureData['components'][number]): P
 }
 
 function createInputDraft(
+  payPeriod: string,
   employees: EmployeeRecord[],
   components: StructureData['components'],
   previous?: PayrollInputSaveInput
@@ -138,10 +149,10 @@ function createInputDraft(
   const manualComponents = components.filter((component) => !component.recurring || component.kind === 'deduction')
   return {
     employeeId: previous?.employeeId ?? employees[0]?.id ?? '',
-    payPeriod: previous?.payPeriod ?? '2026-04',
+    payPeriod,
     componentCode: previous?.componentCode ?? manualComponents[0]?.code ?? 'BONUS',
     amount: 0,
-    sourcePeriod: previous?.sourcePeriod ?? '2026-04'
+    sourcePeriod: previous?.sourcePeriod ?? payPeriod
   }
 }
 
@@ -169,6 +180,7 @@ export function App() {
   const [session, setSession] = useState<AuthSession | null>(null)
   const [data, setData] = useState<AppData | null>(null)
   const [availableCompanies, setAvailableCompanies] = useState<CompanyRecord[]>([])
+  const [selectedPayPeriod, setSelectedPayPeriod] = useState('2026-04')
   const [activeNav, setActiveNav] = useState<NavKey>('dashboard')
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -185,8 +197,8 @@ export function App() {
     setSelectedEmployeeId(data.payrollRun.snapshot.employees[0].employeeId)
   }, [data, selectedEmployeeId])
 
-  async function refreshCompanyData(company: CompanyRecord): Promise<AppData> {
-    const refreshed = await loadAppData(company)
+  async function refreshCompanyData(company: CompanyRecord, payPeriod = selectedPayPeriod): Promise<AppData> {
+    const refreshed = await loadAppData(company, payPeriod)
     setData(refreshed)
     return refreshed
   }
@@ -200,7 +212,7 @@ export function App() {
       const companies = await window.haqlyApi.companies.list()
       setAvailableCompanies(companies)
       if (companies.length === 1) {
-        await refreshCompanyData(companies[0])
+        await refreshCompanyData(companies[0], selectedPayPeriod)
       }
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : 'Unable to sign in')
@@ -213,7 +225,7 @@ export function App() {
     if (!data || !session) return
     try {
       await window.haqlyApi.payrollRuns.approve(data.payrollRun.id, session.id)
-      await refreshCompanyData(data.company)
+      await refreshCompanyData(data.company, selectedPayPeriod)
       setNotice({ tone: 'success', message: 'Payroll approved and locked.' })
     } catch (actionError) {
       setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to approve payroll.' })
@@ -224,7 +236,7 @@ export function App() {
     if (!data || !session) return
     try {
       await window.haqlyApi.payrollRuns.submitForReview(data.payrollRun.id, session.id)
-      await refreshCompanyData(data.company)
+      await refreshCompanyData(data.company, selectedPayPeriod)
       setNotice({ tone: 'success', message: 'Payroll run submitted for review.' })
     } catch (actionError) {
       setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to submit payroll for review.' })
@@ -234,8 +246,20 @@ export function App() {
   async function handleCompanySelection(company: CompanyRecord) {
     setBusy(true)
     try {
-      await refreshCompanyData(company)
+      await refreshCompanyData(company, selectedPayPeriod)
       setNotice(null)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handlePayPeriodChange(payPeriod: string) {
+    setSelectedPayPeriod(payPeriod)
+    if (!data) return
+
+    setBusy(true)
+    try {
+      await refreshCompanyData(data.company, payPeriod)
     } finally {
       setBusy(false)
     }
@@ -246,7 +270,7 @@ export function App() {
 
     try {
       await window.haqlyApi.employees.update(data.company.id, employeeId, payload, session.id)
-      await refreshCompanyData(data.company)
+      await refreshCompanyData(data.company, selectedPayPeriod)
       setNotice({ tone: 'success', message: 'Employee record saved.' })
     } catch (actionError) {
       setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to save employee.' })
@@ -258,7 +282,7 @@ export function App() {
 
     try {
       await window.haqlyApi.employees.updatePayAssignments(data.company.id, employeeId, payload, session.id)
-      await refreshCompanyData(data.company)
+      await refreshCompanyData(data.company, selectedPayPeriod)
       setNotice({ tone: 'success', message: 'Compensation lines saved.' })
     } catch (actionError) {
       setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to save compensation lines.' })
@@ -270,7 +294,7 @@ export function App() {
 
     try {
       await window.haqlyApi.inputs.save(data.company.id, payload, session.id)
-      await refreshCompanyData(data.company)
+      await refreshCompanyData(data.company, selectedPayPeriod)
       setNotice({ tone: 'success', message: 'Payroll input saved.' })
     } catch (actionError) {
       setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to save payroll input.' })
@@ -282,7 +306,7 @@ export function App() {
 
     try {
       await window.haqlyApi.structures.update(data.company.id, componentCode, payload, session.id)
-      await refreshCompanyData(data.company)
+      await refreshCompanyData(data.company, selectedPayPeriod)
       setNotice({ tone: 'success', message: 'Salary component saved.' })
     } catch (actionError) {
       setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to save salary component.' })
@@ -294,7 +318,7 @@ export function App() {
 
     try {
       await window.haqlyApi.loans.create(data.company.id, payload, session.id)
-      await refreshCompanyData(data.company)
+      await refreshCompanyData(data.company, selectedPayPeriod)
       setNotice({ tone: 'success', message: 'Loan record saved.' })
     } catch (actionError) {
       setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to save loan record.' })
@@ -306,7 +330,7 @@ export function App() {
 
     try {
       await window.haqlyApi.loans.updateStatus(data.company.id, loanId, status, session.id)
-      await refreshCompanyData(data.company)
+      await refreshCompanyData(data.company, selectedPayPeriod)
       setNotice({ tone: 'success', message: `Loan marked ${status}.` })
     } catch (actionError) {
       setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to update loan status.' })
@@ -323,7 +347,7 @@ export function App() {
           ? await window.haqlyApi.exports.generateBankScheduleXlsx(data.payrollRun.id)
           : await window.haqlyApi.exports.generatePayslipPdf(data.payrollRun.id, data.payrollRun.snapshot.employees[0].employeeId)
 
-      await refreshCompanyData(data.company)
+      await refreshCompanyData(data.company, selectedPayPeriod)
       setNotice({ tone: 'success', message: `Export ready: ${result.filePath}` })
     } catch (actionError) {
       setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to generate export.' })
@@ -373,9 +397,19 @@ export function App() {
             <p className="muted">{data.company.name}</p>
             <h1>2026 Nigeria Tax Pack Active</h1>
           </div>
-          <div className="profile-chip">
-            <span>{session.displayName}</span>
-            <small>{session.role.replace('_', ' ')}</small>
+          <div className="topbar-actions">
+            <label className="period-select">
+              <span>Pay Period</span>
+              <select aria-label="Pay Period" value={selectedPayPeriod} disabled={busy} onChange={(event) => handlePayPeriodChange(event.target.value)}>
+                {buildPayPeriodOptions(data.payrollRun ? [data.payrollRun.payPeriod] : [], selectedPayPeriod).map((payPeriod) => (
+                  <option key={payPeriod} value={payPeriod}>{payPeriod}</option>
+                ))}
+              </select>
+            </label>
+            <div className="profile-chip">
+              <span>{session.displayName}</span>
+              <small>{session.role.replace('_', ' ')}</small>
+            </div>
           </div>
         </header>
 
@@ -384,7 +418,7 @@ export function App() {
         {activeNav === 'dashboard' ? <DashboardPage data={data.dashboard} /> : null}
         {activeNav === 'employees' ? <EmployeesPage employees={data.employees} onSave={handleEmployeeUpdate} onSaveCompensation={handleEmployeeCompensationSave} /> : null}
         {activeNav === 'structures' ? <StructuresPage structures={data.structures} onSave={handleStructureSave} /> : null}
-        {activeNav === 'inputs' ? <InputsPage inputs={data.inputs} employees={data.employees} components={data.structures.components} onSave={handleInputSave} /> : null}
+        {activeNav === 'inputs' ? <InputsPage payPeriod={selectedPayPeriod} inputs={data.inputs} employees={data.employees} components={data.structures.components} onSave={handleInputSave} /> : null}
         {activeNav === 'loans' ? <LoansPage loans={data.loans} employees={data.employees} onCreate={handleLoanCreate} onUpdateStatus={handleLoanStatusUpdate} /> : null}
         {activeNav === 'payroll' ? (
           <PayrollPage
@@ -898,20 +932,26 @@ function StructuresPage({
 }
 
 function InputsPage({
+  payPeriod,
   inputs,
   employees,
   components,
   onSave
 }: {
+  payPeriod: string
   inputs: InputCenterData
   employees: EmployeeRecord[]
   components: StructureData['components']
   onSave: (payload: PayrollInputSaveInput) => Promise<void>
 }) {
   const manualComponents = components.filter((component) => !component.recurring || component.kind === 'deduction')
-  const [draft, setDraft] = useState<PayrollInputSaveInput>(() => createInputDraft(employees, components))
+  const [draft, setDraft] = useState<PayrollInputSaveInput>(() => createInputDraft(payPeriod, employees, components))
   const [saving, setSaving] = useState(false)
   const totalInputValue = inputs.lines.reduce((sum, line) => sum + Number(line.amount), 0)
+
+  useEffect(() => {
+    setDraft(createInputDraft(payPeriod, employees, components))
+  }, [components, employees, payPeriod])
 
   async function handleSubmit() {
     setSaving(true)
@@ -920,7 +960,7 @@ function InputsPage({
         ...draft,
         amount: Number(draft.amount)
       })
-      setDraft(createInputDraft(employees, components, draft))
+      setDraft(createInputDraft(payPeriod, employees, components, draft))
     } finally {
       setSaving(false)
     }
@@ -974,7 +1014,7 @@ function InputsPage({
           <button className="primary-button" disabled={saving} onClick={handleSubmit}>
             {saving ? 'Saving…' : 'Save Input'}
           </button>
-          <button className="secondary-button" onClick={() => setDraft(createInputDraft(employees, components, draft))}>
+          <button className="secondary-button" onClick={() => setDraft(createInputDraft(payPeriod, employees, components, draft))}>
             Reset Form
           </button>
         </div>

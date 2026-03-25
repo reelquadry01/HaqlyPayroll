@@ -616,4 +616,55 @@ describe('App', () => {
     )
     expect(await screen.findByText(/loan record saved/i)).toBeInTheDocument()
   })
+
+  it('lets payroll operators switch pay periods and generates a run when the selected period has no existing payroll', async () => {
+    const user = userEvent.setup()
+    const api = createFakeApi('approver')
+    const generatedRun = {
+      ...api.payrollRuns.getById('run-apr'),
+      id: 'run-may',
+      payPeriod: '2026-05',
+      snapshot: {
+        ...api.payrollRuns.getById('run-apr').snapshot,
+        period: '2026-05'
+      }
+    }
+
+    api.dashboard.get = vi.fn((_companyId, payPeriod) => ({
+      payrollStatus: 'draft',
+      grossPay: payPeriod === '2026-05' ? 4_500_000 : 4_320_000,
+      netPay: payPeriod === '2026-05' ? 3_350_000 : 3_238_850,
+      payeTotal: payPeriod === '2026-05' ? 650_000 : 614_650,
+      employeeCount: 3,
+      compliance: [{ type: 'paye', paymentDate: `${payPeriod}-30`, dueDate: '2026-06-10', status: 'due_soon', amount: 650_000, reference: payPeriod }],
+      pendingTasks: [{ id: 'review', title: `Review ${payPeriod}`, detail: 'Ready for payroll review' }],
+      auditLog: [{ action: 'payroll.generated', createdAt: '2026-05-31T08:30:00Z' }]
+    }))
+    api.inputs.list = vi.fn((_companyId, payPeriod) => ({
+      lines: [{ employeeId: 'emp-chidi', payPeriod, componentCode: 'BONUS', amount: 120_000, validationStatus: 'valid' }],
+      batches: []
+    }))
+    api.payrollRuns.list = vi.fn(() => [api.payrollRuns.getById('run-apr')])
+    api.payrollRuns.generate = vi.fn((_companyId, payPeriod) => ({ ...generatedRun, payPeriod }))
+    api.payrollRuns.getById = vi.fn((runId) => (runId === 'run-may' ? generatedRun : createFakeApi('approver').payrollRuns.getById('run-apr')))
+    api.reports.get = vi.fn((_companyId, payPeriod) => ({ summary: payPeriod === '2026-05' ? generatedRun : createFakeApi('approver').payrollRuns.getById('run-apr'), exportJobs: [] }))
+    api.compliance.get = vi.fn((_companyId, payPeriod) => ({
+      schedules: [{ type: 'paye', paymentDate: `${payPeriod}-30`, dueDate: '2026-06-10', status: 'due_soon', amount: 650_000, reference: payPeriod }],
+      exceptions: { missingTin: [], missingRsa: [] }
+    }))
+    window.haqlyApi = api
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+    await user.selectOptions(screen.getByLabelText(/pay period/i), '2026-05')
+    await user.click(screen.getByRole('button', { name: /^reports$/i }))
+
+    expect(api.payrollRuns.generate).toHaveBeenCalledWith('company-demo', '2026-05')
+    expect(api.dashboard.get).toHaveBeenCalledWith('company-demo', '2026-05')
+    expect(await screen.findByText(/2026-05 outputs/i)).toBeInTheDocument()
+  })
 })
