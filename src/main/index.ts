@@ -47,6 +47,9 @@ function registerHandlers() {
   ipcMain.handle('haqly:exports:bank', (_event, runId: string) => services.exports.generateBankScheduleXlsx(runId))
   ipcMain.handle('haqly:exports:payslip', (_event, runId: string, employeeId: string) => services.exports.generatePayslipPdf(runId, employeeId))
   ipcMain.handle('haqly:exports:reveal', (_event, filePath: string) => shell.showItemInFolder(filePath))
+  ipcMain.handle('haqly:loans:list', (_event, companyId: string) => services.loans.list(companyId))
+  ipcMain.handle('haqly:loans:create', (_event, companyId: string, payload, userId: string) => services.loans.create(companyId, payload, userId))
+  ipcMain.handle('haqly:loans:update-status', (_event, companyId: string, loanId: string, status, userId: string) => services.loans.updateStatus(companyId, loanId, status, userId))
 }
 
 async function createWindow() {

@@ -43,6 +43,11 @@ const api: HaqlyApi = {
     generateBankScheduleXlsx: (runId) => ipcRenderer.invoke('haqly:exports:bank', runId),
     generatePayslipPdf: (runId, employeeId) => ipcRenderer.invoke('haqly:exports:payslip', runId, employeeId),
     revealPath: (filePath) => ipcRenderer.invoke('haqly:exports:reveal', filePath)
+  },
+  loans: {
+    list: (companyId) => ipcRenderer.invoke('haqly:loans:list', companyId),
+    create: (companyId, payload, userId) => ipcRenderer.invoke('haqly:loans:create', companyId, payload, userId),
+    updateStatus: (companyId, loanId, status, userId) => ipcRenderer.invoke('haqly:loans:update-status', companyId, loanId, status, userId)
   }
 }
 

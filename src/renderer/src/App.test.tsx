@@ -217,6 +217,45 @@ function createFakeApi(
       generateBankScheduleXlsx: vi.fn(() => ({ filePath: 'bank.xlsx' })),
       generatePayslipPdf: vi.fn(() => ({ filePath: 'payslip.pdf' })),
       revealPath: vi.fn(() => undefined)
+    },
+    loans: {
+      list: vi.fn(() => [
+        {
+          id: 'loan-aisha-laptop',
+          employeeId: 'emp-aisha',
+          employeeName: 'Aisha Abubakar',
+          type: 'staff_loan',
+          principal: 240_000,
+          balance: 120_000,
+          monthlyDeduction: 40_000,
+          repaymentMethod: 'flat',
+          startDate: '2026-02-01',
+          endDate: '2026-07-31',
+          interestOption: 'none',
+          status: 'active'
+        }
+      ]),
+      create: vi.fn((_companyId, payload) => ({
+        id: 'loan-new',
+        employeeName: payload.employeeId === 'emp-chidi' ? 'Chidi Okoro' : 'Aisha Abubakar',
+        balance: payload.principal,
+        status: 'active',
+        ...payload
+      })),
+      updateStatus: vi.fn((_companyId, loanId, status) => ({
+        id: loanId,
+        employeeId: 'emp-aisha',
+        employeeName: 'Aisha Abubakar',
+        type: 'staff_loan',
+        principal: 240_000,
+        balance: 120_000,
+        monthlyDeduction: 40_000,
+        repaymentMethod: 'flat',
+        startDate: '2026-02-01',
+        endDate: '2026-07-31',
+        interestOption: 'none',
+        status
+      }))
     }
   }
 }
@@ -497,5 +536,84 @@ describe('App', () => {
       'user-approver'
     )
     expect(await screen.findByText(/salary component saved/i)).toBeInTheDocument()
+  })
+
+  it('lets payroll operators create a staff loan from the loans workspace', async () => {
+    const user = userEvent.setup()
+    const api = createFakeApi('approver')
+    api.loans.list = vi
+      .fn()
+      .mockReturnValueOnce([
+        {
+          id: 'loan-aisha-laptop',
+          employeeId: 'emp-aisha',
+          employeeName: 'Aisha Abubakar',
+          type: 'staff_loan',
+          principal: 240_000,
+          balance: 120_000,
+          monthlyDeduction: 40_000,
+          repaymentMethod: 'flat',
+          startDate: '2026-02-01',
+          endDate: '2026-07-31',
+          interestOption: 'none',
+          status: 'active'
+        }
+      ])
+      .mockReturnValue([
+        {
+          id: 'loan-aisha-laptop',
+          employeeId: 'emp-aisha',
+          employeeName: 'Aisha Abubakar',
+          type: 'staff_loan',
+          principal: 240_000,
+          balance: 120_000,
+          monthlyDeduction: 40_000,
+          repaymentMethod: 'flat',
+          startDate: '2026-02-01',
+          endDate: '2026-07-31',
+          interestOption: 'none',
+          status: 'active'
+        },
+        {
+          id: 'loan-new',
+          employeeId: 'emp-chidi',
+          employeeName: 'Chidi Okoro',
+          type: 'staff_loan',
+          principal: 300_000,
+          balance: 300_000,
+          monthlyDeduction: 50_000,
+          repaymentMethod: 'flat',
+          startDate: '2026-05-01',
+          endDate: '2026-10-31',
+          interestOption: 'none',
+          status: 'active'
+        }
+      ])
+    window.haqlyApi = api
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+    await user.click(screen.getByRole('button', { name: /^loans$/i }))
+    await user.selectOptions(screen.getByLabelText(/loan employee/i), 'emp-chidi')
+    await user.clear(screen.getByLabelText(/loan principal/i))
+    await user.type(screen.getByLabelText(/loan principal/i), '300000')
+    await user.clear(screen.getByLabelText(/monthly deduction/i))
+    await user.type(screen.getByLabelText(/monthly deduction/i), '50000')
+    await user.click(screen.getByRole('button', { name: /create loan/i }))
+
+    expect(api.loans.create).toHaveBeenCalledWith(
+      'company-demo',
+      expect.objectContaining({
+        employeeId: 'emp-chidi',
+        principal: 300_000,
+        monthlyDeduction: 50_000
+      }),
+      'user-approver'
+    )
+    expect(await screen.findByText(/loan record saved/i)).toBeInTheDocument()
   })
 })

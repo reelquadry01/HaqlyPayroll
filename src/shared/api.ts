@@ -118,6 +118,34 @@ export interface EmployeePayAssignmentUpdateInput {
   amount: number
 }
 
+export type LoanStatus = 'active' | 'paused' | 'settled'
+
+export interface LoanRecord {
+  id: string
+  employeeId: string
+  employeeName: string
+  type: 'staff_loan' | 'salary_advance'
+  principal: number
+  balance: number
+  monthlyDeduction: number
+  repaymentMethod: 'flat' | 'amortised' | 'one_time'
+  startDate: string
+  endDate: string
+  interestOption: 'none' | 'flat'
+  status: LoanStatus
+}
+
+export interface LoanCreateInput {
+  employeeId: string
+  type: 'staff_loan' | 'salary_advance'
+  principal: number
+  monthlyDeduction: number
+  repaymentMethod: 'flat' | 'amortised' | 'one_time'
+  startDate: string
+  endDate: string
+  interestOption: 'none' | 'flat'
+}
+
 export interface EmployeeRecord {
   id: string
   employeeCode: string
@@ -189,5 +217,10 @@ export interface HaqlyApi {
     generateBankScheduleXlsx(runId: string): Promise<ExportResult> | ExportResult
     generatePayslipPdf(runId: string, employeeId: string): Promise<ExportResult> | ExportResult
     revealPath(filePath: string): Promise<void> | void
+  }
+  loans: {
+    list(companyId: string): Promise<LoanRecord[]> | LoanRecord[]
+    create(companyId: string, payload: LoanCreateInput, userId: string): Promise<LoanRecord> | LoanRecord
+    updateStatus(companyId: string, loanId: string, status: LoanStatus, userId: string): Promise<LoanRecord> | LoanRecord
   }
 }

@@ -9,6 +9,9 @@ import type {
   EmployeeRecord,
   EmployeeUpdateInput,
   InputCenterData,
+  LoanCreateInput,
+  LoanRecord,
+  LoanStatus,
   PayComponentUpdateInput,
   PayrollInputSaveInput,
   PayrollRunDetail,
@@ -17,7 +20,7 @@ import type {
 } from '@shared/api'
 import { formatNaira } from '@shared/money'
 
-type NavKey = 'dashboard' | 'employees' | 'structures' | 'inputs' | 'payroll' | 'reports' | 'compliance'
+type NavKey = 'dashboard' | 'employees' | 'structures' | 'inputs' | 'loans' | 'payroll' | 'reports' | 'compliance'
 
 interface AppData {
   company: CompanyRecord
@@ -25,6 +28,7 @@ interface AppData {
   employees: EmployeeRecord[]
   structures: StructureData
   inputs: InputCenterData
+  loans: LoanRecord[]
   payrollRun: PayrollRunDetail
   reports: ReportData
   compliance: ComplianceData
@@ -40,17 +44,19 @@ const navItems: Array<{ key: NavKey; label: string }> = [
   { key: 'employees', label: 'Employees' },
   { key: 'structures', label: 'Structures' },
   { key: 'inputs', label: 'Payroll Inputs' },
+  { key: 'loans', label: 'Loans' },
   { key: 'payroll', label: 'Payroll' },
   { key: 'reports', label: 'Reports' },
   { key: 'compliance', label: 'Compliance' }
 ]
 
 async function loadAppData(company: CompanyRecord): Promise<AppData> {
-  const [dashboard, employees, structures, inputs, runs] = await Promise.all([
+  const [dashboard, employees, structures, inputs, loans, runs] = await Promise.all([
     window.haqlyApi.dashboard.get(company.id, '2026-04'),
     window.haqlyApi.employees.list(company.id),
     window.haqlyApi.structures.get(company.id),
     window.haqlyApi.inputs.list(company.id, '2026-04'),
+    window.haqlyApi.loans.list(company.id),
     window.haqlyApi.payrollRuns.list(company.id)
   ])
 
@@ -61,7 +67,7 @@ async function loadAppData(company: CompanyRecord): Promise<AppData> {
     window.haqlyApi.compliance.get(company.id, '2026-04')
   ])
 
-  return { company, dashboard, employees, structures, inputs, payrollRun, reports, compliance }
+  return { company, dashboard, employees, structures, inputs, loans, payrollRun, reports, compliance }
 }
 
 function LoginView({ onLogin, busy, error }: { onLogin: (email: string, password: string) => void; busy: boolean; error?: string }) {
@@ -136,6 +142,19 @@ function createInputDraft(
     componentCode: previous?.componentCode ?? manualComponents[0]?.code ?? 'BONUS',
     amount: 0,
     sourcePeriod: previous?.sourcePeriod ?? '2026-04'
+  }
+}
+
+function createLoanDraft(employees: EmployeeRecord[]): LoanCreateInput {
+  return {
+    employeeId: employees[0]?.id ?? '',
+    type: 'staff_loan',
+    principal: 250_000,
+    monthlyDeduction: 50_000,
+    repaymentMethod: 'flat',
+    startDate: '2026-05-01',
+    endDate: '2026-10-31',
+    interestOption: 'none'
   }
 }
 
@@ -270,6 +289,30 @@ export function App() {
     }
   }
 
+  async function handleLoanCreate(payload: LoanCreateInput) {
+    if (!data || !session) return
+
+    try {
+      await window.haqlyApi.loans.create(data.company.id, payload, session.id)
+      await refreshCompanyData(data.company)
+      setNotice({ tone: 'success', message: 'Loan record saved.' })
+    } catch (actionError) {
+      setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to save loan record.' })
+    }
+  }
+
+  async function handleLoanStatusUpdate(loanId: string, status: LoanStatus) {
+    if (!data || !session) return
+
+    try {
+      await window.haqlyApi.loans.updateStatus(data.company.id, loanId, status, session.id)
+      await refreshCompanyData(data.company)
+      setNotice({ tone: 'success', message: `Loan marked ${status}.` })
+    } catch (actionError) {
+      setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to update loan status.' })
+    }
+  }
+
   async function handleExport(kind: 'journal' | 'bank' | 'payslip') {
     if (!data) return
 
@@ -342,6 +385,7 @@ export function App() {
         {activeNav === 'employees' ? <EmployeesPage employees={data.employees} onSave={handleEmployeeUpdate} onSaveCompensation={handleEmployeeCompensationSave} /> : null}
         {activeNav === 'structures' ? <StructuresPage structures={data.structures} onSave={handleStructureSave} /> : null}
         {activeNav === 'inputs' ? <InputsPage inputs={data.inputs} employees={data.employees} components={data.structures.components} onSave={handleInputSave} /> : null}
+        {activeNav === 'loans' ? <LoansPage loans={data.loans} employees={data.employees} onCreate={handleLoanCreate} onUpdateStatus={handleLoanStatusUpdate} /> : null}
         {activeNav === 'payroll' ? (
           <PayrollPage
             run={data.payrollRun}
@@ -972,6 +1016,118 @@ function InputsPage({
             </div>
           ))}
         </div>
+      </article>
+    </section>
+  )
+}
+
+function LoansPage({
+  loans,
+  employees,
+  onCreate,
+  onUpdateStatus
+}: {
+  loans: LoanRecord[]
+  employees: EmployeeRecord[]
+  onCreate: (payload: LoanCreateInput) => Promise<void>
+  onUpdateStatus: (loanId: string, status: LoanStatus) => Promise<void>
+}) {
+  const [draft, setDraft] = useState<LoanCreateInput>(() => createLoanDraft(employees))
+  const [saving, setSaving] = useState(false)
+  const totalOutstanding = loans.reduce((sum, loan) => sum + loan.balance, 0)
+
+  async function handleSubmit() {
+    setSaving(true)
+    try {
+      await onCreate(draft)
+      setDraft(createLoanDraft(employees))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className="page-grid employee-layout">
+      <article className="surface-card detail-card">
+        <div className="section-header">
+          <div>
+            <p className="section-label">Loan Desk</p>
+            <h3>Create staff loans and advances</h3>
+          </div>
+          <span className="pill due_soon">{loans.length} live facilities</span>
+        </div>
+
+        <div className="stat-grid compact-stat-grid">
+          <StatCard label="Live Loans" value={String(loans.length)} />
+          <StatCard label="Outstanding Balance" value={formatNaira(totalOutstanding)} />
+          <StatCard label="Avg Deduction" value={formatNaira(loans.length ? totalOutstanding / Math.max(loans.length * 3, 1) : 0)} />
+        </div>
+
+        <div className="editor-grid">
+          <label>
+            Loan Employee
+            <select aria-label="Loan Employee" value={draft.employeeId} onChange={(event) => setDraft({ ...draft, employeeId: event.target.value })}>
+              {employees.map((employee) => (
+                <option key={employee.id} value={employee.id}>{employee.fullName}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Facility Type
+            <select aria-label="Facility Type" value={draft.type} onChange={(event) => setDraft({ ...draft, type: event.target.value as LoanCreateInput['type'] })}>
+              <option value="staff_loan">Staff Loan</option>
+              <option value="salary_advance">Salary Advance</option>
+            </select>
+          </label>
+          <label>
+            Loan Principal
+            <input aria-label="Loan Principal" type="number" value={draft.principal} onChange={(event) => setDraft({ ...draft, principal: Number(event.target.value) })} />
+          </label>
+          <label>
+            Monthly Deduction
+            <input aria-label="Monthly Deduction" type="number" value={draft.monthlyDeduction} onChange={(event) => setDraft({ ...draft, monthlyDeduction: Number(event.target.value) })} />
+          </label>
+          <label>
+            Start Date
+            <input aria-label="Loan Start Date" type="date" value={draft.startDate} onChange={(event) => setDraft({ ...draft, startDate: event.target.value })} />
+          </label>
+          <label>
+            End Date
+            <input aria-label="Loan End Date" type="date" value={draft.endDate} onChange={(event) => setDraft({ ...draft, endDate: event.target.value })} />
+          </label>
+        </div>
+
+        <div className="button-row">
+          <button className="primary-button" disabled={saving} onClick={handleSubmit}>
+            {saving ? 'Saving…' : 'Create Loan'}
+          </button>
+        </div>
+      </article>
+
+      <article className="surface-card detail-card">
+        <div className="section-header">
+          <div>
+            <p className="section-label">Live Loan Book</p>
+            <h3>Recoveries and statuses</h3>
+          </div>
+        </div>
+
+        {loans.map((loan) => (
+          <div key={loan.id} className="table-row loan-row">
+            <div>
+              <strong>{loan.employeeName}</strong>
+              <p className="muted">{loan.type.replace('_', ' ')}</p>
+            </div>
+            <span>{formatNaira(loan.balance)}</span>
+            <span>{formatNaira(loan.monthlyDeduction)}</span>
+            <span className={`pill ${loan.status === 'active' ? 'valid' : loan.status === 'settled' ? 'remitted' : 'due_soon'}`}>{loan.status}</span>
+            <div className="button-row inline-button-row">
+              {loan.status === 'active' ? <button className="secondary-button" onClick={() => onUpdateStatus(loan.id, 'paused')}>Pause</button> : null}
+              {loan.status === 'paused' ? <button className="secondary-button" onClick={() => onUpdateStatus(loan.id, 'active')}>Resume</button> : null}
+              {loan.status !== 'settled' ? <button className="secondary-button" onClick={() => onUpdateStatus(loan.id, 'settled')}>Settle</button> : null}
+            </div>
+          </div>
+        ))}
       </article>
     </section>
   )

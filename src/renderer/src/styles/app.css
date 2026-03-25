@@ -62,6 +62,8 @@ button, input, select { font: inherit; }
 .employee-row { align-items: stretch; }
 .employee-row.selected { background: linear-gradient(135deg, rgba(13,37,93,0.08), rgba(159,212,200,0.18)); }
 .employee-summary { border: none; background: transparent; display: grid; grid-template-columns: minmax(180px, 1.4fr) repeat(3, minmax(0, 1fr)); gap: 14px; width: 100%; text-align: left; cursor: pointer; color: inherit; align-items: center; }
+.loan-row { align-items: center; }
+.inline-button-row { justify-content: flex-end; flex-wrap: nowrap; }
 .empty-state { display: grid; gap: 8px; padding: 18px; border-radius: 18px; background: var(--paper); }
 .export-row { align-items: flex-start; }
 @media (max-width: 1100px) {

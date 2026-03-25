@@ -303,4 +303,60 @@ describe('service facade integration', () => {
       ])
     )
   })
+
+  it('creates a staff loan and exposes it in the loan workspace', () => {
+    const database = createDatabaseContext({ filePath: ':memory:' })
+    bootstrapDatabase(database)
+    seedDemoData(database)
+
+    const services = createServiceFacade({
+      database,
+      exportDir
+    })
+
+    const created = services.loans.create(
+      'company-demo',
+      {
+        employeeId: 'emp-aisha',
+        principal: 300_000,
+        monthlyDeduction: 50_000,
+        repaymentMethod: 'flat',
+        startDate: '2026-05-01',
+        endDate: '2026-10-31',
+        interestOption: 'none',
+        type: 'staff_loan'
+      },
+      'user-payroll'
+    )
+
+    const loans = services.loans.list('company-demo')
+
+    expect(created.employeeId).toBe('emp-aisha')
+    expect(created.balance).toBe(300_000)
+    expect(created.status).toBe('active')
+    expect(loans).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: created.id,
+          employeeId: 'emp-aisha',
+          principal: 300_000
+        })
+      ])
+    )
+  })
+
+  it('updates loan status for payroll operators', () => {
+    const database = createDatabaseContext({ filePath: ':memory:' })
+    bootstrapDatabase(database)
+    seedDemoData(database)
+
+    const services = createServiceFacade({
+      database,
+      exportDir
+    })
+
+    const updated = services.loans.updateStatus('company-demo', 'loan-aisha-laptop', 'paused', 'user-payroll')
+
+    expect(updated.status).toBe('paused')
+  })
 })

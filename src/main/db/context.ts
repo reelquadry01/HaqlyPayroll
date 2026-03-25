@@ -86,6 +86,27 @@ export function bootstrapDatabase(context: DatabaseContext): void {
       import_batch_id TEXT,
       validation_status TEXT
     );
+    CREATE TABLE IF NOT EXISTS loans (
+      id TEXT PRIMARY KEY,
+      company_id TEXT NOT NULL,
+      employee_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      principal REAL NOT NULL,
+      balance REAL NOT NULL,
+      monthly_deduction REAL NOT NULL,
+      repayment_method TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      interest_option TEXT NOT NULL,
+      status TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS loan_repayments (
+      id TEXT PRIMARY KEY,
+      loan_id TEXT NOT NULL,
+      pay_period TEXT NOT NULL,
+      amount REAL NOT NULL,
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS tax_policies (
       id TEXT PRIMARY KEY,
       company_id TEXT,
@@ -339,6 +360,23 @@ export function seedDemoData(context: DatabaseContext): void {
   ] as const) {
     insertInput.run(randomUUID(), companyId, employeeId, payPeriod, componentCode, amount, sourcePeriod, 'april-2026-inputs.xlsx', importBatchId, 'valid')
   }
+
+  context.db.prepare(
+    'INSERT INTO loans (id, company_id, employee_id, type, principal, balance, monthly_deduction, repayment_method, start_date, end_date, interest_option, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(
+    'loan-aisha-laptop',
+    companyId,
+    'emp-aisha',
+    'staff_loan',
+    240_000,
+    120_000,
+    40_000,
+    'flat',
+    '2026-02-01',
+    '2026-07-31',
+    'none',
+    'active'
+  )
 
   const marchRunId = 'run-mar-2026'
   const marchSnapshot = {

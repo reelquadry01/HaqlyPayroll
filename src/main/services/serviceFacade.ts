@@ -6,7 +6,7 @@ import { compareSync } from 'bcryptjs'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import * as XLSX from 'xlsx'
 
-import type { EmployeePayAssignmentUpdateInput, EmployeeUpdateInput, PayComponentUpdateInput, PayrollInputSaveInput } from '@shared/api'
+import type { EmployeePayAssignmentUpdateInput, EmployeeUpdateInput, LoanCreateInput, LoanStatus, PayComponentUpdateInput, PayrollInputSaveInput } from '@shared/api'
 import { formatNaira, roundCurrency } from '@shared/money'
 import type {
   EmployeeProfile,
@@ -105,6 +105,33 @@ function readEmployeePayAssignments(context: DatabaseContext, employeeId: string
        ORDER BY component.kind ASC, component.code ASC`
     )
     .all(employeeId) as Array<{ componentCode: string; componentName: string; amount: number; activeFrom: string }>
+}
+
+function readLoans(context: DatabaseContext, companyId: string) {
+  return context.db
+    .prepare(
+      `SELECT loans.id, loans.employee_id AS employeeId, employees.full_name AS employeeName, loans.type, loans.principal, loans.balance,
+              loans.monthly_deduction AS monthlyDeduction, loans.repayment_method AS repaymentMethod, loans.start_date AS startDate,
+              loans.end_date AS endDate, loans.interest_option AS interestOption, loans.status
+       FROM loans
+       JOIN employees ON employees.id = loans.employee_id
+       WHERE loans.company_id = ?
+       ORDER BY loans.start_date DESC, employees.full_name ASC`
+    )
+    .all(companyId) as Array<{
+      id: string
+      employeeId: string
+      employeeName: string
+      type: 'staff_loan' | 'salary_advance'
+      principal: number
+      balance: number
+      monthlyDeduction: number
+      repaymentMethod: 'flat' | 'amortised' | 'one_time'
+      startDate: string
+      endDate: string
+      interestOption: 'none' | 'flat'
+      status: LoanStatus
+    }>
 }
 
 function writeAuditLog(context: DatabaseContext, companyId: string, action: string, entityType: string, entityId: string, userId?: string, details?: unknown): void {
@@ -550,6 +577,64 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
         }
       }
     },
-    exports
+    exports,
+    loans: {
+      list(companyId: string) {
+        return readLoans(database, companyId)
+      },
+      create(companyId: string, payload: LoanCreateInput, userId: string) {
+        const role = getUserRole(database, userId)
+        if (!['admin', 'payroll_officer', 'approver'].includes(role)) {
+          throw new Error('Permission denied: user cannot create loans')
+        }
+
+        const id = randomUUID()
+        database.db
+          .prepare(
+            `INSERT INTO loans (id, company_id, employee_id, type, principal, balance, monthly_deduction, repayment_method, start_date, end_date, interest_option, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            id,
+            companyId,
+            payload.employeeId,
+            payload.type,
+            payload.principal,
+            payload.principal,
+            payload.monthlyDeduction,
+            payload.repaymentMethod,
+            payload.startDate,
+            payload.endDate,
+            payload.interestOption,
+            'active'
+          )
+
+        writeAuditLog(database, companyId, 'loan.created', 'loan', id, userId, payload)
+
+        const created = readLoans(database, companyId).find((loan) => loan.id === id)
+        if (!created) {
+          throw new Error('Unable to create loan')
+        }
+        return created
+      },
+      updateStatus(companyId: string, loanId: string, status: LoanStatus, userId: string) {
+        const role = getUserRole(database, userId)
+        if (!['admin', 'payroll_officer', 'approver'].includes(role)) {
+          throw new Error('Permission denied: user cannot update loans')
+        }
+
+        database.db
+          .prepare('UPDATE loans SET status = ? WHERE id = ? AND company_id = ?')
+          .run(status, loanId, companyId)
+
+        writeAuditLog(database, companyId, 'loan.status_updated', 'loan', loanId, userId, { status })
+
+        const updated = readLoans(database, companyId).find((loan) => loan.id === loanId)
+        if (!updated) {
+          throw new Error(`Loan not found: ${loanId}`)
+        }
+        return updated
+      }
+    }
   }
 }
