@@ -22,6 +22,7 @@ const api: HaqlyApi = {
     generate: (companyId, payPeriod) => ipcRenderer.invoke('haqly:payroll-runs:generate', companyId, payPeriod),
     list: (companyId) => ipcRenderer.invoke('haqly:payroll-runs:list', companyId),
     getById: (runId) => ipcRenderer.invoke('haqly:payroll-runs:get', runId),
+    submitForReview: (runId, userId) => ipcRenderer.invoke('haqly:payroll-runs:review', runId, userId),
     approve: (runId, userId) => ipcRenderer.invoke('haqly:payroll-runs:approve', runId, userId)
   },
   dashboard: {

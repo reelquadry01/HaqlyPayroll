@@ -12,6 +12,7 @@ import type {
   PayComponentDefinition,
   PayrollInputLine,
   PayrollRunSnapshot,
+  PayrollRunVariance,
   Role
 } from '@shared/types'
 
@@ -34,6 +35,27 @@ function parseJson<T>(value: string): T {
 
 function formatPdfCurrency(value: number): string {
   return formatNaira(value).replace('₦', 'NGN ')
+}
+
+function buildPayrollVariance(context: DatabaseContext, companyId: string, payPeriod: string, totals: {
+  grossPay: number
+  netPay: number
+  payeTotal: number
+}): PayrollRunVariance | undefined {
+  const previousRun = context.db
+    .prepare('SELECT pay_period AS payPeriod, gross_pay AS grossPay, net_pay AS netPay, paye_total AS payeTotal FROM payroll_runs WHERE company_id = ? AND pay_period < ? ORDER BY pay_period DESC LIMIT 1')
+    .get(companyId, payPeriod) as { payPeriod: string; grossPay: number; netPay: number; payeTotal: number } | undefined
+
+  if (!previousRun) {
+    return undefined
+  }
+
+  return {
+    previousPayPeriod: previousRun.payPeriod,
+    grossPayDelta: roundCurrency(totals.grossPay - previousRun.grossPay),
+    netPayDelta: roundCurrency(totals.netPay - previousRun.netPay),
+    payeDelta: roundCurrency(totals.payeTotal - previousRun.payeTotal)
+  }
 }
 
 function mapComponent(row: Record<string, unknown>): PayComponentDefinition {
@@ -163,11 +185,12 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
     approve(runId: string, userId: string) {
       const run = database.db.prepare('SELECT company_id AS companyId, status FROM payroll_runs WHERE id = ?').get(runId) as { companyId: string; status: string } | undefined
       if (!run) throw new Error('Payroll run not found')
-      if (run.status === 'approved') throw new Error('Payroll run already approved')
       const role = getUserRole(database, userId)
       if (role !== 'admin' && role !== 'approver') {
         throw new Error('Permission denied: user cannot approve payroll')
       }
+      if (run.status === 'approved') throw new Error('Payroll run already approved')
+      if (run.status !== 'in_review') throw new Error('Payroll run must be in review before approval')
 
       const approvedAt = new Date().toISOString()
       const snapshotRecord = database.db.prepare('SELECT snapshot_json AS snapshotJson FROM payroll_snapshots WHERE run_id = ?').get(runId) as { snapshotJson: string }
@@ -179,6 +202,26 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
       writeAuditLog(database, run.companyId, 'payroll.approved', 'payroll_run', runId, userId, { approvedAt })
 
       return { id: runId, status: 'approved' as const }
+    },
+    submitForReview(runId: string, userId: string) {
+      const run = database.db.prepare('SELECT company_id AS companyId, status FROM payroll_runs WHERE id = ?').get(runId) as { companyId: string; status: string } | undefined
+      if (!run) throw new Error('Payroll run not found')
+      if (run.status !== 'draft') throw new Error('Only draft payroll runs can be submitted for review')
+
+      const role = getUserRole(database, userId)
+      if (role !== 'admin' && role !== 'payroll_officer') {
+        throw new Error('Permission denied: user cannot submit payroll for review')
+      }
+
+      const snapshotRecord = database.db.prepare('SELECT snapshot_json AS snapshotJson FROM payroll_snapshots WHERE run_id = ?').get(runId) as { snapshotJson: string }
+      const snapshot = parseJson<PayrollRunSnapshot>(snapshotRecord.snapshotJson)
+      const reviewedSnapshot: PayrollRunSnapshot = { ...snapshot, status: 'in_review' }
+
+      database.db.prepare('UPDATE payroll_runs SET status = ? WHERE id = ?').run('in_review', runId)
+      database.db.prepare('UPDATE payroll_snapshots SET snapshot_json = ? WHERE run_id = ?').run(JSON.stringify(reviewedSnapshot), runId)
+      writeAuditLog(database, run.companyId, 'payroll.in_review', 'payroll_run', runId, userId)
+
+      return { id: runId, status: 'in_review' as const }
     },
     list(companyId: string) {
       return database.db
@@ -196,10 +239,16 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
         grossPay: number
         netPay: number
         payeTotal: number
-        employeeCount: number
-      }
+          employeeCount: number
+        }
       const snapshot = parseJson<PayrollRunSnapshot>((database.db.prepare('SELECT snapshot_json AS snapshotJson FROM payroll_snapshots WHERE run_id = ?').get(runId) as { snapshotJson: string }).snapshotJson)
-      return { ...run, snapshot }
+      const variance = buildPayrollVariance(database, run.companyId, run.payPeriod, {
+        grossPay: run.grossPay,
+        netPay: run.netPay,
+        payeTotal: run.payeTotal
+      })
+
+      return { ...run, snapshot, variance }
     }
   }
 

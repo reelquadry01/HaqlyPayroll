@@ -145,6 +145,13 @@ export interface PayrollRunSnapshot {
   employees: PayrollEmployeeResult[]
 }
 
+export interface PayrollRunVariance {
+  previousPayPeriod: string
+  grossPayDelta: number
+  netPayDelta: number
+  payeDelta: number
+}
+
 export interface RemittanceSchedule {
   type: 'paye' | 'pension'
   paymentDate: string

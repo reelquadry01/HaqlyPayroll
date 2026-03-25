@@ -340,6 +340,61 @@ export function seedDemoData(context: DatabaseContext): void {
     insertInput.run(randomUUID(), companyId, employeeId, payPeriod, componentCode, amount, sourcePeriod, 'april-2026-inputs.xlsx', importBatchId, 'valid')
   }
 
+  const marchRunId = 'run-mar-2026'
+  const marchSnapshot = {
+    runId: marchRunId,
+    period: '2026-03',
+    status: 'approved',
+    policyCode: 'NG-2026',
+    approvedBy: 'user-approver',
+    approvedAt: '2026-03-30T17:00:00Z',
+    employees: [
+      {
+        employeeId: 'emp-chidi',
+        grossPay: 1_150_000,
+        taxableGross: 1_100_000,
+        deductions: 250_000,
+        netPay: 900_000,
+        paye: 150_000,
+        recurringLines: [],
+        variableLines: [],
+        deductionLines: [],
+        taxBreakdown: []
+      },
+      {
+        employeeId: 'emp-aisha',
+        grossPay: 800_000,
+        taxableGross: 760_000,
+        deductions: 140_000,
+        netPay: 660_000,
+        paye: 60_000,
+        recurringLines: [],
+        variableLines: [],
+        deductionLines: [],
+        taxBreakdown: []
+      },
+      {
+        employeeId: 'emp-femi',
+        grossPay: 1_950_000,
+        taxableGross: 1_820_000,
+        deductions: 540_000,
+        netPay: 1_410_000,
+        paye: 313_500,
+        recurringLines: [],
+        variableLines: [],
+        deductionLines: [],
+        taxBreakdown: []
+      }
+    ]
+  }
+
+  context.db
+    .prepare('INSERT INTO payroll_runs (id, company_id, pay_period, status, policy_code, gross_pay, net_pay, paye_total, employee_count, approved_by, approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(marchRunId, companyId, '2026-03', 'approved', 'NG-2026', 3_900_000, 2_970_000, 523_500, 3, 'user-approver', '2026-03-30T17:00:00Z')
+  context.db
+    .prepare('INSERT INTO payroll_snapshots (run_id, snapshot_json) VALUES (?, ?)')
+    .run(marchRunId, JSON.stringify(marchSnapshot))
+
   const northwindCompanyId = 'company-northwind'
   const insertNorthwindEmployee = context.db.prepare(
     'INSERT INTO employees (id, company_id, employee_code, full_name, department, branch, role_title, hire_date, status, bank_name, account_number, tin, rsa_number, pfa_name, nhf_flag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'

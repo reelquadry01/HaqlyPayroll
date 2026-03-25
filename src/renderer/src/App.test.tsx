@@ -13,20 +13,32 @@ declare global {
   }
 }
 
-function createFakeApi(role: 'approver' | 'reviewer'): HaqlyApi {
+function createFakeApi(
+  role: 'approver' | 'reviewer',
+  options: {
+    runStatus?: 'draft' | 'in_review' | 'approved'
+  } = {}
+): HaqlyApi {
+  const runStatus = options.runStatus ?? 'draft'
   const payrollRun = {
     id: 'run-apr',
     companyId: 'company-demo',
     payPeriod: '2026-04',
-    status: 'draft',
+    status: runStatus,
     grossPay: 4_320_000,
     netPay: 3_238_850,
     payeTotal: 614_650,
     employeeCount: 3,
+    variance: {
+      previousPayPeriod: '2026-03',
+      grossPayDelta: 420_000,
+      netPayDelta: 268_850,
+      payeDelta: 91_150
+    },
     snapshot: {
       runId: 'run-apr',
       period: '2026-04',
-      status: 'draft',
+      status: runStatus,
       policyCode: 'NG-2026',
       employees: [
         {
@@ -99,7 +111,8 @@ function createFakeApi(role: 'approver' | 'reviewer'): HaqlyApi {
       generate: vi.fn(() => payrollRun),
       list: vi.fn(() => [payrollRun]),
       getById: vi.fn(() => payrollRun),
-      approve: vi.fn(() => ({ id: 'run-apr', status: 'approved' }))
+      approve: vi.fn(() => ({ id: 'run-apr', status: 'approved' })),
+      submitForReview: vi.fn(() => ({ id: 'run-apr', status: 'in_review' }))
     },
     dashboard: {
       get: vi.fn(() => ({
@@ -160,6 +173,7 @@ describe('App', () => {
 
   it('shows payroll review drill-down and approval controls for approvers', async () => {
     const user = userEvent.setup()
+    window.haqlyApi = createFakeApi('approver', { runStatus: 'in_review' })
     render(<App />)
 
     await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
@@ -172,6 +186,47 @@ describe('App', () => {
 
     expect(await screen.findByText(/performance bonus/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /approve & lock payroll/i })).toBeInTheDocument()
+  })
+
+  it('shows payroll variance against the previous month in the payroll review screen', async () => {
+    const user = userEvent.setup()
+    window.haqlyApi = createFakeApi('approver', { runStatus: 'in_review' })
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+    await user.click(screen.getByRole('button', { name: /^payroll$/i }))
+
+    expect(await screen.findByText(/variance vs 2026-03/i)).toBeInTheDocument()
+    expect(screen.getByText(/\+₦420,000\.00/i)).toBeInTheDocument()
+    expect(screen.getByText(/\+₦268,850\.00/i)).toBeInTheDocument()
+    expect(screen.getByText(/\+₦91,150\.00/i)).toBeInTheDocument()
+  })
+
+  it('shows a review handoff action for payroll officers on draft runs', async () => {
+    const payrollOfficerApi = {
+      ...createFakeApi('reviewer'),
+      auth: {
+        login: vi.fn(() => ({ id: 'user-payroll', email: 'payroll@haqly.local', role: 'payroll_officer', displayName: 'Amina Yusuf' }))
+      }
+    } as unknown as HaqlyApi
+
+    window.haqlyApi = payrollOfficerApi
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'payroll@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+    await user.click(screen.getByRole('button', { name: /^payroll$/i }))
+
+    expect(await screen.findByRole('button', { name: /send to review/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /approve & lock payroll/i })).not.toBeInTheDocument()
   })
 
   it('hides approval controls for reviewers while keeping the payroll breakdown visible', async () => {

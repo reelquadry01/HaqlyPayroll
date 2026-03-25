@@ -34,6 +34,7 @@ function registerHandlers() {
   ipcMain.handle('haqly:payroll-runs:generate', (_event, companyId: string, payPeriod: string) => services.payrollRuns.generate(companyId, payPeriod))
   ipcMain.handle('haqly:payroll-runs:list', (_event, companyId: string) => services.payrollRuns.list(companyId))
   ipcMain.handle('haqly:payroll-runs:get', (_event, runId: string) => services.payrollRuns.getById(runId))
+  ipcMain.handle('haqly:payroll-runs:review', (_event, runId: string, userId: string) => services.payrollRuns.submitForReview(runId, userId))
   ipcMain.handle('haqly:payroll-runs:approve', (_event, runId: string, userId: string) => services.payrollRuns.approve(runId, userId))
   ipcMain.handle('haqly:dashboard:get', (_event, companyId: string, payPeriod: string) => services.dashboard.get(companyId, payPeriod))
   ipcMain.handle('haqly:compliance:get', (_event, companyId: string, payPeriod: string) => services.compliance.get(companyId, payPeriod))

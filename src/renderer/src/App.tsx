@@ -73,6 +73,11 @@ function LoginView({ onLogin, busy, error }: { onLogin: (email: string, password
   )
 }
 
+function formatSignedNaira(value: number): string {
+  const prefix = value >= 0 ? '+' : '-'
+  return `${prefix}${formatNaira(Math.abs(value))}`
+}
+
 export function App() {
   const [session, setSession] = useState<AuthSession | null>(null)
   const [data, setData] = useState<AppData | null>(null)
@@ -114,6 +119,13 @@ export function App() {
   async function handleApprove() {
     if (!data || !session) return
     await window.haqlyApi.payrollRuns.approve(data.payrollRun.id, session.id)
+    const refreshed = await loadAppData(data.company)
+    setData(refreshed)
+  }
+
+  async function handleSubmitForReview() {
+    if (!data || !session) return
+    await window.haqlyApi.payrollRuns.submitForReview(data.payrollRun.id, session.id)
     const refreshed = await loadAppData(data.company)
     setData(refreshed)
   }
@@ -178,8 +190,9 @@ export function App() {
             selectedEmployeeId={selectedEmployeeId}
             onSelectEmployee={setSelectedEmployeeId}
             selectedEmployee={selectedEmployee}
-            canApprove={session.role === 'approver' || session.role === 'admin'}
+            role={session.role}
             onApprove={handleApprove}
+            onSubmitForReview={handleSubmitForReview}
           />
         ) : null}
         {activeNav === 'reports' ? <ReportsPage reports={data.reports} payrollRun={data.payrollRun} /> : null}
@@ -350,16 +363,21 @@ function PayrollPage({
   selectedEmployeeId,
   onSelectEmployee,
   selectedEmployee,
-  canApprove,
-  onApprove
+  role,
+  onApprove,
+  onSubmitForReview
 }: {
   run: PayrollRunDetail
   selectedEmployeeId: string | null
   onSelectEmployee: (employeeId: string) => void
   selectedEmployee?: PayrollRunDetail['snapshot']['employees'][number]
-  canApprove: boolean
+  role: AuthSession['role']
   onApprove: () => void
+  onSubmitForReview: () => void
 }) {
+  const canSubmitForReview = run.status === 'draft' && (role === 'admin' || role === 'payroll_officer')
+  const canApprove = run.status === 'in_review' && (role === 'admin' || role === 'approver')
+
   return (
     <section className="page-grid payroll-layout">
       <article className="surface-card">
@@ -392,12 +410,27 @@ function PayrollPage({
             <p className="section-label">Employee Breakdown</p>
             <h3>{selectedEmployeeId === 'emp-chidi' ? 'Chidi Okoro' : selectedEmployeeId === 'emp-aisha' ? 'Aisha Abubakar' : 'Femi Adebayo'}</h3>
           </div>
+          {canSubmitForReview ? (
+            <button className="primary-button" onClick={onSubmitForReview}>
+              Send to Review
+            </button>
+          ) : null}
           {canApprove ? (
             <button className="primary-button" onClick={onApprove}>
               Approve &amp; Lock Payroll
             </button>
           ) : null}
         </div>
+        {run.variance ? (
+          <div>
+            <p className="section-label">Variance vs {run.variance.previousPayPeriod}</p>
+            <div className="stat-grid">
+              <StatCard label="Gross Movement" value={formatSignedNaira(run.variance.grossPayDelta)} />
+              <StatCard label="Net Movement" value={formatSignedNaira(run.variance.netPayDelta)} />
+              <StatCard label="PAYE Movement" value={formatSignedNaira(run.variance.payeDelta)} />
+            </div>
+          </div>
+        ) : null}
         <div className="detail-columns">
           <div>
             <p className="section-label">Earnings</p>

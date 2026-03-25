@@ -1,4 +1,4 @@
-import type { PayrollInputLine, PayrollRunSnapshot, RemittanceSchedule, Role, TaxPolicyPack } from './types'
+import type { PayrollInputLine, PayrollRunSnapshot, PayrollRunVariance, RemittanceSchedule, Role, TaxPolicyPack } from './types'
 
 export interface AuthSession {
   id: string
@@ -57,6 +57,7 @@ export interface PayrollRunSummary {
 export interface PayrollRunDetail extends PayrollRunSummary {
   companyId: string
   snapshot: PayrollRunSnapshot
+  variance?: PayrollRunVariance
 }
 
 export interface ReportData {
@@ -106,6 +107,7 @@ export interface HaqlyApi {
     generate(companyId: string, payPeriod: string): Promise<PayrollRunSummary> | PayrollRunSummary
     list(companyId: string): Promise<PayrollRunSummary[]> | PayrollRunSummary[]
     getById(runId: string): Promise<PayrollRunDetail> | PayrollRunDetail
+    submitForReview(runId: string, userId: string): Promise<{ id: string; status: string }> | { id: string; status: string }
     approve(runId: string, userId: string): Promise<{ id: string; status: string }> | { id: string; status: string }
   }
   dashboard: {
