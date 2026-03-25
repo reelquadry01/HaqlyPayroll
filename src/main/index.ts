@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 
 import { bootstrapDatabase, createDatabaseContext, seedDemoData } from './db/context'
 import { createServiceFacade } from './services/serviceFacade'
@@ -29,6 +29,7 @@ function registerHandlers() {
   ipcMain.handle('haqly:auth:login', (_event, email: string, password: string) => services.auth.login(email, password))
   ipcMain.handle('haqly:companies:list', () => services.companies.list())
   ipcMain.handle('haqly:employees:list', (_event, companyId: string) => services.employees.list(companyId))
+  ipcMain.handle('haqly:employees:update', (_event, companyId: string, employeeId: string, payload, userId: string) => services.employees.update(companyId, employeeId, payload, userId))
   ipcMain.handle('haqly:structures:get', (_event, companyId: string) => services.structures.get(companyId))
   ipcMain.handle('haqly:inputs:list', (_event, companyId: string, payPeriod: string) => services.inputs.list(companyId, payPeriod))
   ipcMain.handle('haqly:payroll-runs:generate', (_event, companyId: string, payPeriod: string) => services.payrollRuns.generate(companyId, payPeriod))
@@ -42,6 +43,7 @@ function registerHandlers() {
   ipcMain.handle('haqly:exports:journal', (_event, runId: string) => services.exports.generateJournalCsv(runId))
   ipcMain.handle('haqly:exports:bank', (_event, runId: string) => services.exports.generateBankScheduleXlsx(runId))
   ipcMain.handle('haqly:exports:payslip', (_event, runId: string, employeeId: string) => services.exports.generatePayslipPdf(runId, employeeId))
+  ipcMain.handle('haqly:exports:reveal', (_event, filePath: string) => shell.showItemInFolder(filePath))
 }
 
 async function createWindow() {

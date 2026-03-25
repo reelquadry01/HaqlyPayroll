@@ -87,6 +87,35 @@ export interface InputCenterData {
   }>
 }
 
+export interface EmployeeRecord {
+  id: string
+  employeeCode: string
+  fullName: string
+  department: string
+  branch: string
+  roleTitle: string
+  hireDate: string
+  status: string
+  bankName?: string | null
+  accountNumber?: string | null
+  tin?: string | null
+  rsaNumber?: string | null
+  pfaName?: string | null
+  nhfFlag?: number | boolean
+}
+
+export interface EmployeeUpdateInput {
+  fullName: string
+  department: string
+  branch: string
+  roleTitle: string
+  bankName: string
+  accountNumber: string
+  tin: string
+  rsaNumber: string
+  status: string
+}
+
 export interface HaqlyApi {
   auth: {
     login(email: string, password: string): Promise<AuthSession> | AuthSession
@@ -95,7 +124,8 @@ export interface HaqlyApi {
     list(): Promise<CompanyRecord[]> | CompanyRecord[]
   }
   employees: {
-    list(companyId: string): Promise<Array<Record<string, unknown>>> | Array<Record<string, unknown>>
+    list(companyId: string): Promise<EmployeeRecord[]> | EmployeeRecord[]
+    update(companyId: string, employeeId: string, payload: EmployeeUpdateInput, userId: string): Promise<EmployeeRecord> | EmployeeRecord
   }
   structures: {
     get(companyId: string): Promise<StructureData> | StructureData
@@ -123,5 +153,6 @@ export interface HaqlyApi {
     generateJournalCsv(runId: string): Promise<ExportResult> | ExportResult
     generateBankScheduleXlsx(runId: string): Promise<ExportResult> | ExportResult
     generatePayslipPdf(runId: string, employeeId: string): Promise<ExportResult> | ExportResult
+    revealPath(filePath: string): Promise<void> | void
   }
 }

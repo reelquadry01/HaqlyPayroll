@@ -153,4 +153,41 @@ describe('service facade integration', () => {
       }
     ])
   })
+
+  it('updates an employee record through the service layer for payroll operations users', () => {
+    const database = createDatabaseContext({ filePath: ':memory:' })
+    bootstrapDatabase(database)
+    seedDemoData(database)
+
+    const services = createServiceFacade({
+      database,
+      exportDir
+    })
+
+    const updated = services.employees.update(
+      'company-demo',
+      'emp-chidi',
+      {
+        fullName: 'Chidi Okoro-Okafor',
+        department: 'Platform Engineering',
+        branch: 'Lekki Annex',
+        roleTitle: 'Senior Engineering Analyst',
+        bankName: 'First Bank',
+        accountNumber: '9988776655',
+        tin: 'TIN-CHIDI-NEW',
+        rsaNumber: 'RSA-001-ALT',
+        status: 'active'
+      },
+      'user-payroll'
+    )
+
+    expect(updated.fullName).toBe('Chidi Okoro-Okafor')
+    expect(updated.department).toBe('Platform Engineering')
+    expect(updated.branch).toBe('Lekki Annex')
+    expect(updated.roleTitle).toBe('Senior Engineering Analyst')
+    expect(updated.bankName).toBe('First Bank')
+    expect(updated.accountNumber).toBe('9988776655')
+    expect(updated.tin).toBe('TIN-CHIDI-NEW')
+    expect(updated.rsaNumber).toBe('RSA-001-ALT')
+  })
 })

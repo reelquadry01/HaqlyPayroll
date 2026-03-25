@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import type { AuthSession, CompanyRecord, ComplianceData, DashboardData, InputCenterData, PayrollRunDetail, ReportData, StructureData } from '@shared/api'
+import type {
+  AuthSession,
+  CompanyRecord,
+  ComplianceData,
+  DashboardData,
+  EmployeeRecord,
+  EmployeeUpdateInput,
+  InputCenterData,
+  PayrollRunDetail,
+  ReportData,
+  StructureData
+} from '@shared/api'
 import { formatNaira } from '@shared/money'
 
 type NavKey = 'dashboard' | 'employees' | 'structures' | 'inputs' | 'payroll' | 'reports' | 'compliance'
@@ -8,12 +19,17 @@ type NavKey = 'dashboard' | 'employees' | 'structures' | 'inputs' | 'payroll' | 
 interface AppData {
   company: CompanyRecord
   dashboard: DashboardData
-  employees: Array<Record<string, unknown>>
+  employees: EmployeeRecord[]
   structures: StructureData
   inputs: InputCenterData
   payrollRun: PayrollRunDetail
   reports: ReportData
   compliance: ComplianceData
+}
+
+interface NoticeState {
+  tone: 'success' | 'error'
+  message: string
 }
 
 const navItems: Array<{ key: NavKey; label: string }> = [
@@ -78,6 +94,20 @@ function formatSignedNaira(value: number): string {
   return `${prefix}${formatNaira(Math.abs(value))}`
 }
 
+function createEmployeeDraft(employee: EmployeeRecord): EmployeeUpdateInput {
+  return {
+    fullName: employee.fullName,
+    department: employee.department,
+    branch: employee.branch,
+    roleTitle: employee.roleTitle,
+    bankName: employee.bankName ?? '',
+    accountNumber: employee.accountNumber ?? '',
+    tin: employee.tin ?? '',
+    rsaNumber: employee.rsaNumber ?? '',
+    status: employee.status
+  }
+}
+
 export function App() {
   const [session, setSession] = useState<AuthSession | null>(null)
   const [data, setData] = useState<AppData | null>(null)
@@ -86,8 +116,9 @@ export function App() {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
+  const [notice, setNotice] = useState<NoticeState | null>(null)
 
-  const selectedEmployee = useMemo(
+  const selectedPayrollEmployee = useMemo(
     () => data?.payrollRun.snapshot.employees.find((employee) => employee.employeeId === selectedEmployeeId) ?? data?.payrollRun.snapshot.employees[0],
     [data, selectedEmployeeId]
   )
@@ -96,6 +127,12 @@ export function App() {
     if (!data?.payrollRun.snapshot.employees.length || selectedEmployeeId) return
     setSelectedEmployeeId(data.payrollRun.snapshot.employees[0].employeeId)
   }, [data, selectedEmployeeId])
+
+  async function refreshCompanyData(company: CompanyRecord): Promise<AppData> {
+    const refreshed = await loadAppData(company)
+    setData(refreshed)
+    return refreshed
+  }
 
   async function handleLogin(email: string, password: string) {
     try {
@@ -106,8 +143,7 @@ export function App() {
       const companies = await window.haqlyApi.companies.list()
       setAvailableCompanies(companies)
       if (companies.length === 1) {
-        const nextData = await loadAppData(companies[0])
-        setData(nextData)
+        await refreshCompanyData(companies[0])
       }
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : 'Unable to sign in')
@@ -118,25 +154,71 @@ export function App() {
 
   async function handleApprove() {
     if (!data || !session) return
-    await window.haqlyApi.payrollRuns.approve(data.payrollRun.id, session.id)
-    const refreshed = await loadAppData(data.company)
-    setData(refreshed)
+    try {
+      await window.haqlyApi.payrollRuns.approve(data.payrollRun.id, session.id)
+      await refreshCompanyData(data.company)
+      setNotice({ tone: 'success', message: 'Payroll approved and locked.' })
+    } catch (actionError) {
+      setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to approve payroll.' })
+    }
   }
 
   async function handleSubmitForReview() {
     if (!data || !session) return
-    await window.haqlyApi.payrollRuns.submitForReview(data.payrollRun.id, session.id)
-    const refreshed = await loadAppData(data.company)
-    setData(refreshed)
+    try {
+      await window.haqlyApi.payrollRuns.submitForReview(data.payrollRun.id, session.id)
+      await refreshCompanyData(data.company)
+      setNotice({ tone: 'success', message: 'Payroll run submitted for review.' })
+    } catch (actionError) {
+      setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to submit payroll for review.' })
+    }
   }
 
   async function handleCompanySelection(company: CompanyRecord) {
     setBusy(true)
     try {
-      const nextData = await loadAppData(company)
-      setData(nextData)
+      await refreshCompanyData(company)
+      setNotice(null)
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function handleEmployeeUpdate(employeeId: string, payload: EmployeeUpdateInput) {
+    if (!data || !session) return
+
+    try {
+      await window.haqlyApi.employees.update(data.company.id, employeeId, payload, session.id)
+      await refreshCompanyData(data.company)
+      setNotice({ tone: 'success', message: 'Employee record saved.' })
+    } catch (actionError) {
+      setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to save employee.' })
+    }
+  }
+
+  async function handleExport(kind: 'journal' | 'bank' | 'payslip') {
+    if (!data) return
+
+    try {
+      const result = kind === 'journal'
+        ? await window.haqlyApi.exports.generateJournalCsv(data.payrollRun.id)
+        : kind === 'bank'
+          ? await window.haqlyApi.exports.generateBankScheduleXlsx(data.payrollRun.id)
+          : await window.haqlyApi.exports.generatePayslipPdf(data.payrollRun.id, data.payrollRun.snapshot.employees[0].employeeId)
+
+      await refreshCompanyData(data.company)
+      setNotice({ tone: 'success', message: `Export ready: ${result.filePath}` })
+    } catch (actionError) {
+      setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to generate export.' })
+    }
+  }
+
+  async function handleRevealPath(filePath: string) {
+    try {
+      await window.haqlyApi.exports.revealPath(filePath)
+      setNotice({ tone: 'success', message: `Opened export location: ${filePath}` })
+    } catch (actionError) {
+      setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to open export location.' })
     }
   }
 
@@ -180,8 +262,10 @@ export function App() {
           </div>
         </header>
 
+        {notice ? <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} /> : null}
+
         {activeNav === 'dashboard' ? <DashboardPage data={data.dashboard} /> : null}
-        {activeNav === 'employees' ? <EmployeesPage employees={data.employees} /> : null}
+        {activeNav === 'employees' ? <EmployeesPage employees={data.employees} onSave={handleEmployeeUpdate} /> : null}
         {activeNav === 'structures' ? <StructuresPage structures={data.structures} /> : null}
         {activeNav === 'inputs' ? <InputsPage inputs={data.inputs} /> : null}
         {activeNav === 'payroll' ? (
@@ -189,13 +273,13 @@ export function App() {
             run={data.payrollRun}
             selectedEmployeeId={selectedEmployeeId}
             onSelectEmployee={setSelectedEmployeeId}
-            selectedEmployee={selectedEmployee}
+            selectedEmployee={selectedPayrollEmployee}
             role={session.role}
             onApprove={handleApprove}
             onSubmitForReview={handleSubmitForReview}
           />
         ) : null}
-        {activeNav === 'reports' ? <ReportsPage reports={data.reports} payrollRun={data.payrollRun} /> : null}
+        {activeNav === 'reports' ? <ReportsPage reports={data.reports} payrollRun={data.payrollRun} onExport={handleExport} onRevealPath={handleRevealPath} /> : null}
         {activeNav === 'compliance' ? <CompliancePage compliance={data.compliance} /> : null}
       </main>
     </div>
@@ -227,6 +311,15 @@ function CompanySelectionView({
           ))}
         </div>
       </section>
+    </div>
+  )
+}
+
+function NoticeBanner({ notice, onDismiss }: { notice: NoticeState; onDismiss: () => void }) {
+  return (
+    <div className={`notice-banner ${notice.tone}`}>
+      <strong>{notice.message}</strong>
+      <button className="link-button" onClick={onDismiss}>Dismiss</button>
     </div>
   )
 }
@@ -276,23 +369,161 @@ function DashboardPage({ data }: { data: DashboardData }) {
   )
 }
 
-function EmployeesPage({ employees }: { employees: Array<Record<string, unknown>> }) {
+function EmployeesPage({
+  employees,
+  onSave
+}: {
+  employees: EmployeeRecord[]
+  onSave: (employeeId: string, payload: EmployeeUpdateInput) => Promise<void>
+}) {
+  const [selectedId, setSelectedId] = useState<string | null>(employees[0]?.id ?? null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draft, setDraft] = useState<EmployeeUpdateInput | null>(employees[0] ? createEmployeeDraft(employees[0]) : null)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!employees.length) {
+      setSelectedId(null)
+      setEditingId(null)
+      setDraft(null)
+      return
+    }
+
+    if (!selectedId || !employees.find((employee) => employee.id === selectedId)) {
+      setSelectedId(employees[0].id)
+    }
+  }, [employees, selectedId])
+
+  const selectedEmployee = employees.find((employee) => employee.id === selectedId) ?? employees[0]
+  const activeEmployee = employees.find((employee) => employee.id === editingId) ?? selectedEmployee
+
+  useEffect(() => {
+    if (activeEmployee) {
+      setDraft(createEmployeeDraft(activeEmployee))
+    }
+  }, [activeEmployee])
+
+  if (!selectedEmployee || !draft) {
+    return null
+  }
+
+  async function handleSubmit() {
+    if (!activeEmployee) return
+    setSaving(true)
+    try {
+      await onSave(activeEmployee.id, draft)
+      setEditingId(activeEmployee.id)
+      setSelectedId(activeEmployee.id)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
-    <section className="surface-card">
-      <p className="section-label">Employee Register</p>
-      <div className="table-list">
-        {employees.map((employee) => (
-          <div key={String(employee.id)} className="table-row">
-            <div>
-              <strong>{String(employee.fullName)}</strong>
-              <p className="muted">{String(employee.employeeCode)}</p>
-            </div>
-            <span>{String(employee.department)}</span>
-            <span>{String(employee.branch)}</span>
-            <span>{String(employee.roleTitle)}</span>
+    <section className="page-grid employee-layout">
+      <article className="surface-card">
+        <div className="section-header">
+          <div>
+            <p className="section-label">Employee Register</p>
+            <h3>Payroll directory</h3>
           </div>
-        ))}
-      </div>
+          <span className="pill valid">{employees.length} employees</span>
+        </div>
+        <div className="table-list">
+          {employees.map((employee) => (
+            <div key={employee.id} className={`table-row employee-row ${employee.id === selectedId ? 'selected' : ''}`}>
+              <button className="employee-summary" onClick={() => setSelectedId(employee.id)}>
+                <div>
+                  <strong>{employee.fullName}</strong>
+                  <p className="muted">{employee.employeeCode}</p>
+                </div>
+                <span>{employee.department}</span>
+                <span>{employee.branch}</span>
+                <span>{employee.roleTitle}</span>
+              </button>
+              <button
+                className="secondary-button"
+                aria-label={`Edit ${employee.fullName}`}
+                onClick={() => {
+                  setSelectedId(employee.id)
+                  setEditingId(employee.id)
+                  setDraft(createEmployeeDraft(employee))
+                }}
+              >
+                Edit
+              </button>
+            </div>
+          ))}
+        </div>
+      </article>
+
+      <article className="surface-card detail-card">
+        <div className="section-header">
+          <div>
+            <p className="section-label">Employee Editor</p>
+            <h3>{activeEmployee?.fullName ?? selectedEmployee.fullName}</h3>
+          </div>
+          <span className={`pill ${draft.status === 'active' ? 'valid' : 'overdue'}`}>{draft.status}</span>
+        </div>
+
+        <div className="editor-grid">
+          <label>
+            Full Name
+            <input aria-label="Full Name" value={draft.fullName} onChange={(event) => setDraft({ ...draft, fullName: event.target.value })} />
+          </label>
+          <label>
+            Department
+            <input aria-label="Department" value={draft.department} onChange={(event) => setDraft({ ...draft, department: event.target.value })} />
+          </label>
+          <label>
+            Branch
+            <input aria-label="Branch" value={draft.branch} onChange={(event) => setDraft({ ...draft, branch: event.target.value })} />
+          </label>
+          <label>
+            Role Title
+            <input aria-label="Role Title" value={draft.roleTitle} onChange={(event) => setDraft({ ...draft, roleTitle: event.target.value })} />
+          </label>
+          <label>
+            Bank Name
+            <input aria-label="Bank Name" value={draft.bankName} onChange={(event) => setDraft({ ...draft, bankName: event.target.value })} />
+          </label>
+          <label>
+            Account Number
+            <input aria-label="Account Number" value={draft.accountNumber} onChange={(event) => setDraft({ ...draft, accountNumber: event.target.value })} />
+          </label>
+          <label>
+            TIN
+            <input aria-label="TIN" value={draft.tin} onChange={(event) => setDraft({ ...draft, tin: event.target.value })} />
+          </label>
+          <label>
+            RSA Number
+            <input aria-label="RSA Number" value={draft.rsaNumber} onChange={(event) => setDraft({ ...draft, rsaNumber: event.target.value })} />
+          </label>
+          <label>
+            Status
+            <select aria-label="Status" value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })}>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="resigned">Resigned</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="button-row">
+          <button className="primary-button" disabled={saving} onClick={handleSubmit}>
+            {saving ? 'Saving…' : 'Save Employee'}
+          </button>
+          <button
+            className="secondary-button"
+            onClick={() => {
+              setEditingId(selectedEmployee.id)
+              setDraft(createEmployeeDraft(selectedEmployee))
+            }}
+          >
+            Reset
+          </button>
+        </div>
+      </article>
     </section>
   )
 }
@@ -465,25 +696,59 @@ function PayrollPage({
   )
 }
 
-function ReportsPage({ reports, payrollRun }: { reports: ReportData; payrollRun: PayrollRunDetail }) {
+function ReportsPage({
+  reports,
+  payrollRun,
+  onExport,
+  onRevealPath
+}: {
+  reports: ReportData
+  payrollRun: PayrollRunDetail
+  onExport: (kind: 'journal' | 'bank' | 'payslip') => Promise<void>
+  onRevealPath: (filePath: string) => Promise<void>
+}) {
   return (
     <section className="page-grid">
-      <article className="surface-card">
-        <p className="section-label">Export Center</p>
+      <article className="surface-card detail-card">
+        <div className="section-header">
+          <div>
+            <p className="section-label">Export Center</p>
+            <h3>{payrollRun.payPeriod} outputs</h3>
+          </div>
+          <span className="pill due_soon">{payrollRun.snapshot.employees.length} payslips</span>
+        </div>
         <div className="button-row">
-          <button className="secondary-button" onClick={() => window.haqlyApi.exports.generateJournalCsv(payrollRun.id)}>Journal CSV</button>
-          <button className="secondary-button" onClick={() => window.haqlyApi.exports.generateBankScheduleXlsx(payrollRun.id)}>Bank XLSX</button>
-          <button className="secondary-button" onClick={() => window.haqlyApi.exports.generatePayslipPdf(payrollRun.id, payrollRun.snapshot.employees[0].employeeId)}>Payslip PDF</button>
+          <button className="secondary-button" onClick={() => onExport('journal')}>Journal CSV</button>
+          <button className="secondary-button" onClick={() => onExport('bank')}>Bank XLSX</button>
+          <button className="secondary-button" onClick={() => onExport('payslip')}>Payslip PDF</button>
         </div>
       </article>
-      <article className="surface-card">
-        <p className="section-label">Recent Export Jobs</p>
-        {reports.exportJobs.map((job) => (
-          <div key={job.id} className="table-row">
-            <span>{job.type}</span>
-            <span>{job.filePath}</span>
+      <article className="surface-card detail-card">
+        <div className="section-header">
+          <div>
+            <p className="section-label">Recent Export Jobs</p>
+            <h3>Latest files</h3>
           </div>
-        ))}
+        </div>
+        {reports.exportJobs.length ? (
+          reports.exportJobs.map((job) => (
+            <div key={job.id} className="table-row export-row">
+              <div>
+                <strong>{job.type}</strong>
+                <p className="muted">{job.filePath}</p>
+              </div>
+              <div className="button-row">
+                <span className="muted">{new Date(job.createdAt).toLocaleString()}</span>
+                <button className="secondary-button" onClick={() => onRevealPath(job.filePath)}>Reveal file</button>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="empty-state">
+            <strong>No exports yet</strong>
+            <p className="muted">Generate a journal, bank schedule, or payslip file to populate this center.</p>
+          </div>
+        )}
       </article>
     </section>
   )

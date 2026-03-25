@@ -1,6 +1,6 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--paper); color: var(--ink); }
-button, input { font: inherit; }
+button, input, select { font: inherit; }
 .app-shell { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
 .sidebar { background: linear-gradient(180deg, var(--navy-950), var(--navy-900)); color: white; padding: 28px 22px; display: flex; flex-direction: column; justify-content: space-between; gap: 24px; }
 .workspace { padding: 28px 32px 36px; display: flex; flex-direction: column; gap: 24px; }
@@ -15,6 +15,7 @@ button, input { font: inherit; }
 .secondary-button { background: white; padding: 12px 16px; border-radius: 14px; box-shadow: var(--shadow); }
 .page-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 .payroll-layout { grid-template-columns: minmax(280px, 420px) 1fr; }
+.employee-layout { grid-template-columns: minmax(420px, 1.2fr) minmax(380px, 0.9fr); }
 .surface-card, .hero-card, .login-card { background: rgba(255,255,255,0.86); padding: 24px; border-radius: 26px; box-shadow: var(--shadow); }
 .hero-card { grid-column: 1 / -1; }
 .section-label, .eyebrow { margin: 0 0 8px; font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft); }
@@ -32,21 +33,32 @@ button, input { font: inherit; }
 .detail-card { display: flex; flex-direction: column; gap: 22px; }
 .detail-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .button-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .pill { padding: 8px 12px; border-radius: 999px; font-size: 0.78rem; text-transform: capitalize; background: var(--paper-deep); }
 .pill.due_soon { background: rgba(155,101,26,0.16); color: var(--warning); }
 .pill.overdue { background: rgba(165,58,58,0.14); color: var(--danger); }
 .pill.remitted, .pill.valid { background: rgba(47,106,94,0.16); color: var(--success); }
+.notice-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 18px; border-radius: 18px; box-shadow: var(--shadow); }
+.notice-banner.success { background: linear-gradient(135deg, rgba(47,106,94,0.14), rgba(159,212,200,0.22)); color: var(--success); }
+.notice-banner.error { background: linear-gradient(135deg, rgba(165,58,58,0.12), rgba(255,229,229,0.78)); color: var(--danger); }
+.link-button { border: none; background: transparent; color: inherit; cursor: pointer; font-weight: 600; }
 .login-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at top left, rgba(159,212,200,0.26), transparent 36%), linear-gradient(135deg, #fdfdfc, #ece7df); }
 .login-card { width: min(480px, 100%); display: grid; gap: 14px; }
 .company-selector-list { display: grid; gap: 12px; }
 .company-selector-card { border: none; background: var(--paper); border-radius: 18px; padding: 18px; text-align: left; display: grid; gap: 6px; cursor: pointer; box-shadow: var(--shadow); }
 .company-selector-card:hover { background: linear-gradient(135deg, rgba(13,37,93,0.08), rgba(159,212,200,0.18)); }
-.login-card label { display: grid; gap: 8px; color: var(--ink-soft); }
-.login-card input { border: none; background: var(--paper); border-radius: 14px; padding: 14px 16px; }
+.login-card label, .editor-grid label { display: grid; gap: 8px; color: var(--ink-soft); }
+.login-card input, .editor-grid input, .editor-grid select { border: 1px solid rgba(13,37,93,0.08); background: var(--paper); border-radius: 14px; padding: 14px 16px; }
 .error-text { color: var(--danger); margin: 0; }
 .hint { color: var(--ink-soft); margin: 0; font-size: 0.9rem; }
+.editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.employee-row { align-items: stretch; }
+.employee-row.selected { background: linear-gradient(135deg, rgba(13,37,93,0.08), rgba(159,212,200,0.18)); }
+.employee-summary { border: none; background: transparent; display: grid; grid-template-columns: minmax(180px, 1.4fr) repeat(3, minmax(0, 1fr)); gap: 14px; width: 100%; text-align: left; cursor: pointer; color: inherit; align-items: center; }
+.empty-state { display: grid; gap: 8px; padding: 18px; border-radius: 18px; background: var(--paper); }
+.export-row { align-items: flex-start; }
 @media (max-width: 1100px) {
   .app-shell { grid-template-columns: 1fr; }
   .sidebar { padding-bottom: 18px; }
-  .page-grid, .payroll-layout, .stat-grid, .detail-columns { grid-template-columns: 1fr; }
+  .page-grid, .payroll-layout, .employee-layout, .stat-grid, .detail-columns, .editor-grid, .employee-summary { grid-template-columns: 1fr; }
 }

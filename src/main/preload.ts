@@ -10,7 +10,8 @@ const api: HaqlyApi = {
     list: () => ipcRenderer.invoke('haqly:companies:list')
   },
   employees: {
-    list: (companyId) => ipcRenderer.invoke('haqly:employees:list', companyId)
+    list: (companyId) => ipcRenderer.invoke('haqly:employees:list', companyId),
+    update: (companyId, employeeId, payload, userId) => ipcRenderer.invoke('haqly:employees:update', companyId, employeeId, payload, userId)
   },
   structures: {
     get: (companyId) => ipcRenderer.invoke('haqly:structures:get', companyId)
@@ -37,7 +38,8 @@ const api: HaqlyApi = {
   exports: {
     generateJournalCsv: (runId) => ipcRenderer.invoke('haqly:exports:journal', runId),
     generateBankScheduleXlsx: (runId) => ipcRenderer.invoke('haqly:exports:bank', runId),
-    generatePayslipPdf: (runId, employeeId) => ipcRenderer.invoke('haqly:exports:payslip', runId, employeeId)
+    generatePayslipPdf: (runId, employeeId) => ipcRenderer.invoke('haqly:exports:payslip', runId, employeeId),
+    revealPath: (filePath) => ipcRenderer.invoke('haqly:exports:reveal', filePath)
   }
 }
 

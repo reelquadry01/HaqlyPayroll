@@ -6,6 +6,7 @@ import { compareSync } from 'bcryptjs'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import * as XLSX from 'xlsx'
 
+import type { EmployeeUpdateInput } from '@shared/api'
 import { formatNaira, roundCurrency } from '@shared/money'
 import type {
   EmployeeProfile,
@@ -71,6 +72,25 @@ function mapComponent(row: Record<string, unknown>): PayComponentDefinition {
     calculationBasis: row.calculation_basis === 'percentage' ? 'percentage' : 'fixed',
     defaultAmount: typeof row.default_amount === 'number' ? row.default_amount : undefined,
     glCode: typeof row.gl_code === 'string' ? row.gl_code : undefined
+  }
+}
+
+function mapEmployee(row: Record<string, unknown>) {
+  return {
+    id: String(row.id),
+    employeeCode: String(row.employeeCode),
+    fullName: String(row.fullName),
+    department: String(row.department),
+    branch: String(row.branch),
+    roleTitle: String(row.roleTitle),
+    hireDate: String(row.hireDate),
+    status: String(row.status),
+    bankName: typeof row.bankName === 'string' ? row.bankName : null,
+    accountNumber: typeof row.accountNumber === 'string' ? row.accountNumber : null,
+    tin: typeof row.tin === 'string' ? row.tin : null,
+    rsaNumber: typeof row.rsaNumber === 'string' ? row.rsaNumber : null,
+    pfaName: typeof row.pfaName === 'string' ? row.pfaName : null,
+    nhfFlag: Boolean(row.nhfFlag)
   }
 }
 
@@ -301,7 +321,48 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
     companies,
     employees: {
       list(companyId: string) {
-        return database.db.prepare('SELECT id, employee_code AS employeeCode, full_name AS fullName, department, branch, role_title AS roleTitle, hire_date AS hireDate, status, bank_name AS bankName, account_number AS accountNumber, tin, rsa_number AS rsaNumber, pfa_name AS pfaName, nhf_flag AS nhfFlag FROM employees WHERE company_id = ? ORDER BY full_name ASC').all(companyId)
+        return database.db
+          .prepare('SELECT id, employee_code AS employeeCode, full_name AS fullName, department, branch, role_title AS roleTitle, hire_date AS hireDate, status, bank_name AS bankName, account_number AS accountNumber, tin, rsa_number AS rsaNumber, pfa_name AS pfaName, nhf_flag AS nhfFlag FROM employees WHERE company_id = ? ORDER BY full_name ASC')
+          .all(companyId)
+          .map((row) => mapEmployee(row as Record<string, unknown>))
+      },
+      update(companyId: string, employeeId: string, payload: EmployeeUpdateInput, userId: string) {
+        const role = getUserRole(database, userId)
+        if (!['admin', 'payroll_officer', 'approver'].includes(role)) {
+          throw new Error('Permission denied: user cannot update employees')
+        }
+
+        const employee = database.db
+          .prepare('SELECT id FROM employees WHERE id = ? AND company_id = ?')
+          .get(employeeId, companyId) as { id: string } | undefined
+
+        if (!employee) {
+          throw new Error('Employee not found')
+        }
+
+        database.db
+          .prepare('UPDATE employees SET full_name = ?, department = ?, branch = ?, role_title = ?, bank_name = ?, account_number = ?, tin = ?, rsa_number = ?, status = ? WHERE id = ? AND company_id = ?')
+          .run(
+            payload.fullName.trim(),
+            payload.department.trim(),
+            payload.branch.trim(),
+            payload.roleTitle.trim(),
+            payload.bankName.trim(),
+            payload.accountNumber.trim(),
+            payload.tin.trim() || null,
+            payload.rsaNumber.trim() || null,
+            payload.status.trim(),
+            employeeId,
+            companyId
+          )
+
+        writeAuditLog(database, companyId, 'employee.updated', 'employee', employeeId, userId, payload)
+
+        return mapEmployee(
+          database.db
+            .prepare('SELECT id, employee_code AS employeeCode, full_name AS fullName, department, branch, role_title AS roleTitle, hire_date AS hireDate, status, bank_name AS bankName, account_number AS accountNumber, tin, rsa_number AS rsaNumber, pfa_name AS pfaName, nhf_flag AS nhfFlag FROM employees WHERE id = ?')
+            .get(employeeId) as Record<string, unknown>
+        )
       }
     },
     structures: {

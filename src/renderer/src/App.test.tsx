@@ -93,7 +93,21 @@ function createFakeApi(
         { id: 'emp-chidi', employeeCode: 'LAG-4492', fullName: 'Chidi Okoro', department: 'Engineering', branch: 'Lagos HQ', roleTitle: 'Engineering Analyst', tin: 'TIN-CHIDI', rsaNumber: 'RSA-001' },
         { id: 'emp-aisha', employeeCode: 'ABJ-2101', fullName: 'Aisha Abubakar', department: 'Operations', branch: 'Abuja', roleTitle: 'Operations Officer', tin: 'TIN-AISHA', rsaNumber: 'RSA-002' },
         { id: 'emp-femi', employeeCode: 'LAG-1120', fullName: 'Femi Adebayo', department: 'Legal', branch: 'Lagos HQ', roleTitle: 'Legal Counsel', tin: null, rsaNumber: 'RSA-003' }
-      ])
+      ]),
+      update: vi.fn((_companyId, employeeId, update) => ({
+        id: employeeId,
+        employeeCode: 'LAG-4492',
+        fullName: update.fullName,
+        department: update.department,
+        branch: update.branch,
+        roleTitle: update.roleTitle,
+        bankName: update.bankName,
+        accountNumber: update.accountNumber,
+        tin: update.tin,
+        rsaNumber: update.rsaNumber,
+        status: update.status,
+        hireDate: '2024-02-12'
+      }))
     },
     structures: {
       get: vi.fn(() => ({
@@ -138,7 +152,8 @@ function createFakeApi(
     exports: {
       generateJournalCsv: vi.fn(() => ({ filePath: 'journal.csv' })),
       generateBankScheduleXlsx: vi.fn(() => ({ filePath: 'bank.xlsx' })),
-      generatePayslipPdf: vi.fn(() => ({ filePath: 'payslip.pdf' }))
+      generatePayslipPdf: vi.fn(() => ({ filePath: 'payslip.pdf' })),
+      revealPath: vi.fn(() => undefined)
     }
   }
 }
@@ -260,5 +275,60 @@ describe('App', () => {
     expect(await screen.findByText(/april-2026-inputs\.xlsx/i)).toBeInTheDocument()
     expect(screen.getByText(/validated/i)).toBeInTheDocument()
     expect(screen.getByText(/bonus/i)).toBeInTheDocument()
+  })
+
+  it('lets payroll operations users edit an employee record from the employee workspace', async () => {
+    const user = userEvent.setup()
+    const api = createFakeApi('approver')
+    window.haqlyApi = api
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+    await user.click(screen.getByRole('button', { name: /^employees$/i }))
+    await user.click(screen.getByRole('button', { name: /edit chidi okoro/i }))
+    await user.clear(screen.getByLabelText(/full name/i))
+    await user.type(screen.getByLabelText(/full name/i), 'Chidi Okoro-Okafor')
+    await user.clear(screen.getByLabelText(/department/i))
+    await user.type(screen.getByLabelText(/department/i), 'Platform Engineering')
+    await user.click(screen.getByRole('button', { name: /save employee/i }))
+
+    expect(api.employees.update).toHaveBeenCalledWith(
+      'company-demo',
+      'emp-chidi',
+      expect.objectContaining({
+        fullName: 'Chidi Okoro-Okafor',
+        department: 'Platform Engineering'
+      }),
+      'user-approver'
+    )
+    expect(await screen.findByText(/employee record saved/i)).toBeInTheDocument()
+  })
+
+  it('shows export success feedback and refreshed history after generating a report file', async () => {
+    const user = userEvent.setup()
+    const exportJobs = [{ id: 'existing-export', type: 'journal_csv', filePath: 'old-journal.csv', createdAt: '2026-04-30T08:30:00Z' }]
+    const api = createFakeApi('approver')
+    api.reports.get = vi
+      .fn()
+      .mockReturnValueOnce({ summary: api.payrollRuns.getById('run-apr'), exportJobs: [] })
+      .mockReturnValue({ summary: api.payrollRuns.getById('run-apr'), exportJobs: [{ id: 'job-2', type: 'journal_csv', filePath: 'journal.csv', createdAt: '2026-04-30T09:10:00Z' }, ...exportJobs] })
+    window.haqlyApi = api
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+    await user.click(screen.getByRole('button', { name: /^reports$/i }))
+    await user.click(screen.getByRole('button', { name: /journal csv/i }))
+
+    expect(await screen.findByText(/export ready/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/journal\.csv/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: /reveal file/i }).length).toBeGreaterThan(0)
   })
 })
