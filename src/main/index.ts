@@ -30,6 +30,7 @@ function registerHandlers() {
   ipcMain.handle('haqly:companies:list', () => services.companies.list())
   ipcMain.handle('haqly:employees:list', (_event, companyId: string) => services.employees.list(companyId))
   ipcMain.handle('haqly:employees:update', (_event, companyId: string, employeeId: string, payload, userId: string) => services.employees.update(companyId, employeeId, payload, userId))
+  ipcMain.handle('haqly:employees:update-pay-assignments', (_event, companyId: string, employeeId: string, payload, userId: string) => services.employees.updatePayAssignments(companyId, employeeId, payload, userId))
   ipcMain.handle('haqly:structures:get', (_event, companyId: string) => services.structures.get(companyId))
   ipcMain.handle('haqly:structures:update', (_event, companyId: string, componentCode: string, payload, userId: string) => services.structures.update(companyId, componentCode, payload, userId))
   ipcMain.handle('haqly:inputs:list', (_event, companyId: string, payPeriod: string) => services.inputs.list(companyId, payPeriod))

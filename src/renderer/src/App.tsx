@@ -5,6 +5,7 @@ import type {
   CompanyRecord,
   ComplianceData,
   DashboardData,
+  EmployeePayAssignmentUpdateInput,
   EmployeeRecord,
   EmployeeUpdateInput,
   InputCenterData,
@@ -138,6 +139,13 @@ function createInputDraft(
   }
 }
 
+function createAssignmentDrafts(employee: EmployeeRecord) {
+  return employee.payAssignments.map((assignment) => ({
+    componentCode: assignment.componentCode,
+    amount: assignment.amount
+  }))
+}
+
 export function App() {
   const [session, setSession] = useState<AuthSession | null>(null)
   const [data, setData] = useState<AppData | null>(null)
@@ -223,6 +231,18 @@ export function App() {
       setNotice({ tone: 'success', message: 'Employee record saved.' })
     } catch (actionError) {
       setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to save employee.' })
+    }
+  }
+
+  async function handleEmployeeCompensationSave(employeeId: string, payload: EmployeePayAssignmentUpdateInput[]) {
+    if (!data || !session) return
+
+    try {
+      await window.haqlyApi.employees.updatePayAssignments(data.company.id, employeeId, payload, session.id)
+      await refreshCompanyData(data.company)
+      setNotice({ tone: 'success', message: 'Compensation lines saved.' })
+    } catch (actionError) {
+      setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to save compensation lines.' })
     }
   }
 
@@ -319,7 +339,7 @@ export function App() {
         {notice ? <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} /> : null}
 
         {activeNav === 'dashboard' ? <DashboardPage data={data.dashboard} /> : null}
-        {activeNav === 'employees' ? <EmployeesPage employees={data.employees} onSave={handleEmployeeUpdate} /> : null}
+        {activeNav === 'employees' ? <EmployeesPage employees={data.employees} onSave={handleEmployeeUpdate} onSaveCompensation={handleEmployeeCompensationSave} /> : null}
         {activeNav === 'structures' ? <StructuresPage structures={data.structures} onSave={handleStructureSave} /> : null}
         {activeNav === 'inputs' ? <InputsPage inputs={data.inputs} employees={data.employees} components={data.structures.components} onSave={handleInputSave} /> : null}
         {activeNav === 'payroll' ? (
@@ -425,15 +445,19 @@ function DashboardPage({ data }: { data: DashboardData }) {
 
 function EmployeesPage({
   employees,
-  onSave
+  onSave,
+  onSaveCompensation
 }: {
   employees: EmployeeRecord[]
   onSave: (employeeId: string, payload: EmployeeUpdateInput) => Promise<void>
+  onSaveCompensation: (employeeId: string, payload: EmployeePayAssignmentUpdateInput[]) => Promise<void>
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(employees[0]?.id ?? null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState<EmployeeUpdateInput | null>(employees[0] ? createEmployeeDraft(employees[0]) : null)
   const [saving, setSaving] = useState(false)
+  const [assignmentDrafts, setAssignmentDrafts] = useState<EmployeePayAssignmentUpdateInput[]>(employees[0] ? createAssignmentDrafts(employees[0]) : [])
+  const [savingCompensation, setSavingCompensation] = useState(false)
 
   useEffect(() => {
     if (!employees.length) {
@@ -454,6 +478,7 @@ function EmployeesPage({
   useEffect(() => {
     if (activeEmployee) {
       setDraft(createEmployeeDraft(activeEmployee))
+      setAssignmentDrafts(createAssignmentDrafts(activeEmployee))
     }
   }, [activeEmployee])
 
@@ -470,6 +495,16 @@ function EmployeesPage({
       setSelectedId(activeEmployee.id)
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleCompensationSubmit() {
+    if (!activeEmployee) return
+    setSavingCompensation(true)
+    try {
+      await onSaveCompensation(activeEmployee.id, assignmentDrafts)
+    } finally {
+      setSavingCompensation(false)
     }
   }
 
@@ -575,6 +610,60 @@ function EmployeesPage({
             }}
           >
             Reset
+          </button>
+        </div>
+
+        <div className="section-header">
+          <div>
+            <p className="section-label">Recurring Compensation</p>
+            <h3>Assigned payroll lines</h3>
+          </div>
+          <span className="pill valid">{assignmentDrafts.length} active lines</span>
+        </div>
+
+        <div className="table-list">
+          {activeEmployee.payAssignments.map((assignment) => {
+            const draftAssignment = assignmentDrafts.find((candidate) => candidate.componentCode === assignment.componentCode) ?? {
+              componentCode: assignment.componentCode,
+              amount: assignment.amount
+            }
+
+            return (
+              <div key={assignment.componentCode} className="table-row">
+                <div>
+                  <strong>{assignment.componentName}</strong>
+                  <p className="muted">{assignment.componentCode}</p>
+                </div>
+                <label className="amount-input-label">
+                  <span className="sr-only">{`${assignment.componentName} Amount`}</span>
+                  <input
+                    aria-label={`${assignment.componentName} Amount`}
+                    type="number"
+                    value={draftAssignment.amount}
+                    onChange={(event) => {
+                      const amount = Number(event.target.value)
+                      setAssignmentDrafts((current) =>
+                        current.map((candidate) =>
+                          candidate.componentCode === assignment.componentCode
+                            ? { ...candidate, amount }
+                            : candidate
+                        )
+                      )
+                    }}
+                  />
+                </label>
+                <span>{assignment.activeFrom}</span>
+              </div>
+            )
+          })}
+        </div>
+
+        <div className="button-row">
+          <button className="primary-button" disabled={savingCompensation} onClick={handleCompensationSubmit}>
+            {savingCompensation ? 'Saving…' : 'Save Compensation'}
+          </button>
+          <button className="secondary-button" onClick={() => setAssignmentDrafts(createAssignmentDrafts(activeEmployee))}>
+            Reset Compensation
           </button>
         </div>
       </article>

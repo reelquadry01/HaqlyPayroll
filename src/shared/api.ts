@@ -106,6 +106,18 @@ export interface PayrollInputSaveInput {
   sourcePeriod?: string
 }
 
+export interface EmployeePayAssignment {
+  componentCode: string
+  componentName: string
+  amount: number
+  activeFrom: string
+}
+
+export interface EmployeePayAssignmentUpdateInput {
+  componentCode: string
+  amount: number
+}
+
 export interface EmployeeRecord {
   id: string
   employeeCode: string
@@ -121,6 +133,7 @@ export interface EmployeeRecord {
   rsaNumber?: string | null
   pfaName?: string | null
   nhfFlag?: number | boolean
+  payAssignments: EmployeePayAssignment[]
 }
 
 export interface EmployeeUpdateInput {
@@ -145,6 +158,7 @@ export interface HaqlyApi {
   employees: {
     list(companyId: string): Promise<EmployeeRecord[]> | EmployeeRecord[]
     update(companyId: string, employeeId: string, payload: EmployeeUpdateInput, userId: string): Promise<EmployeeRecord> | EmployeeRecord
+    updatePayAssignments(companyId: string, employeeId: string, payload: EmployeePayAssignmentUpdateInput[], userId: string): Promise<EmployeePayAssignment[]> | EmployeePayAssignment[]
   }
   structures: {
     get(companyId: string): Promise<StructureData> | StructureData

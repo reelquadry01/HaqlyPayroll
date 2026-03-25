@@ -6,7 +6,7 @@ import { compareSync } from 'bcryptjs'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import * as XLSX from 'xlsx'
 
-import type { EmployeeUpdateInput, PayComponentUpdateInput, PayrollInputSaveInput } from '@shared/api'
+import type { EmployeePayAssignmentUpdateInput, EmployeeUpdateInput, PayComponentUpdateInput, PayrollInputSaveInput } from '@shared/api'
 import { formatNaira, roundCurrency } from '@shared/money'
 import type {
   EmployeeProfile,
@@ -90,8 +90,21 @@ function mapEmployee(row: Record<string, unknown>) {
     tin: typeof row.tin === 'string' ? row.tin : null,
     rsaNumber: typeof row.rsaNumber === 'string' ? row.rsaNumber : null,
     pfaName: typeof row.pfaName === 'string' ? row.pfaName : null,
-    nhfFlag: Boolean(row.nhfFlag)
+    nhfFlag: Boolean(row.nhfFlag),
+    payAssignments: []
   }
+}
+
+function readEmployeePayAssignments(context: DatabaseContext, employeeId: string) {
+  return context.db
+    .prepare(
+      `SELECT assignment.component_code AS componentCode, component.name AS componentName, assignment.amount, assignment.active_from AS activeFrom
+       FROM employee_component_assignments assignment
+       JOIN pay_components component ON component.code = assignment.component_code
+       WHERE assignment.employee_id = ?
+       ORDER BY component.kind ASC, component.code ASC`
+    )
+    .all(employeeId) as Array<{ componentCode: string; componentName: string; amount: number; activeFrom: string }>
 }
 
 function writeAuditLog(context: DatabaseContext, companyId: string, action: string, entityType: string, entityId: string, userId?: string, details?: unknown): void {
@@ -324,7 +337,13 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
         return database.db
           .prepare('SELECT id, employee_code AS employeeCode, full_name AS fullName, department, branch, role_title AS roleTitle, hire_date AS hireDate, status, bank_name AS bankName, account_number AS accountNumber, tin, rsa_number AS rsaNumber, pfa_name AS pfaName, nhf_flag AS nhfFlag FROM employees WHERE company_id = ? ORDER BY full_name ASC')
           .all(companyId)
-          .map((row) => mapEmployee(row as Record<string, unknown>))
+          .map((row) => {
+            const employee = mapEmployee(row as Record<string, unknown>)
+            return {
+              ...employee,
+              payAssignments: readEmployeePayAssignments(database, employee.id)
+            }
+          })
       },
       update(companyId: string, employeeId: string, payload: EmployeeUpdateInput, userId: string) {
         const role = getUserRole(database, userId)
@@ -358,11 +377,41 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
 
         writeAuditLog(database, companyId, 'employee.updated', 'employee', employeeId, userId, payload)
 
-        return mapEmployee(
+        const updatedEmployee = mapEmployee(
           database.db
             .prepare('SELECT id, employee_code AS employeeCode, full_name AS fullName, department, branch, role_title AS roleTitle, hire_date AS hireDate, status, bank_name AS bankName, account_number AS accountNumber, tin, rsa_number AS rsaNumber, pfa_name AS pfaName, nhf_flag AS nhfFlag FROM employees WHERE id = ?')
             .get(employeeId) as Record<string, unknown>
         )
+
+        return {
+          ...updatedEmployee,
+          payAssignments: readEmployeePayAssignments(database, employeeId)
+        }
+      },
+      updatePayAssignments(companyId: string, employeeId: string, payload: EmployeePayAssignmentUpdateInput[], userId: string) {
+        const role = getUserRole(database, userId)
+        if (!['admin', 'payroll_officer', 'approver'].includes(role)) {
+          throw new Error('Permission denied: user cannot edit employee compensation')
+        }
+
+        const employee = database.db.prepare('SELECT id FROM employees WHERE id = ? AND company_id = ?').get(employeeId, companyId) as { id: string } | undefined
+        if (!employee) {
+          throw new Error('Employee not found')
+        }
+
+        const updateAssignment = database.db.prepare(
+          `UPDATE employee_component_assignments
+           SET amount = ?
+           WHERE employee_id = ? AND component_code = ?`
+        )
+
+        for (const assignment of payload) {
+          updateAssignment.run(assignment.amount, employeeId, assignment.componentCode)
+        }
+
+        writeAuditLog(database, companyId, 'employee_compensation.updated', 'employee', employeeId, userId, payload)
+
+        return readEmployeePayAssignments(database, employeeId)
       }
     },
     structures: {

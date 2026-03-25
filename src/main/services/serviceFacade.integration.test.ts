@@ -266,4 +266,41 @@ describe('service facade integration', () => {
       })
     )
   })
+
+  it('updates an employee compensation assignment and exposes the new amount in employee records', () => {
+    const database = createDatabaseContext({ filePath: ':memory:' })
+    bootstrapDatabase(database)
+    seedDemoData(database)
+
+    const services = createServiceFacade({
+      database,
+      exportDir
+    })
+
+    const updatedAssignments = services.employees.updatePayAssignments(
+      'company-demo',
+      'emp-chidi',
+      [{ componentCode: 'BASIC', amount: 975_000 }],
+      'user-payroll'
+    )
+
+    const employee = services.employees.list('company-demo').find((candidate) => candidate.id === 'emp-chidi')
+
+    expect(updatedAssignments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          componentCode: 'BASIC',
+          amount: 975_000
+        })
+      ])
+    )
+    expect(employee?.payAssignments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          componentCode: 'BASIC',
+          amount: 975_000
+        })
+      ])
+    )
+  })
 })

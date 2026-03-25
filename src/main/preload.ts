@@ -11,7 +11,8 @@ const api: HaqlyApi = {
   },
   employees: {
     list: (companyId) => ipcRenderer.invoke('haqly:employees:list', companyId),
-    update: (companyId, employeeId, payload, userId) => ipcRenderer.invoke('haqly:employees:update', companyId, employeeId, payload, userId)
+    update: (companyId, employeeId, payload, userId) => ipcRenderer.invoke('haqly:employees:update', companyId, employeeId, payload, userId),
+    updatePayAssignments: (companyId, employeeId, payload, userId) => ipcRenderer.invoke('haqly:employees:update-pay-assignments', companyId, employeeId, payload, userId)
   },
   structures: {
     get: (companyId) => ipcRenderer.invoke('haqly:structures:get', companyId),

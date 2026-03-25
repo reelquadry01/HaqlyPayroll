@@ -90,9 +90,47 @@ function createFakeApi(
     },
     employees: {
       list: vi.fn(() => [
-        { id: 'emp-chidi', employeeCode: 'LAG-4492', fullName: 'Chidi Okoro', department: 'Engineering', branch: 'Lagos HQ', roleTitle: 'Engineering Analyst', tin: 'TIN-CHIDI', rsaNumber: 'RSA-001' },
-        { id: 'emp-aisha', employeeCode: 'ABJ-2101', fullName: 'Aisha Abubakar', department: 'Operations', branch: 'Abuja', roleTitle: 'Operations Officer', tin: 'TIN-AISHA', rsaNumber: 'RSA-002' },
-        { id: 'emp-femi', employeeCode: 'LAG-1120', fullName: 'Femi Adebayo', department: 'Legal', branch: 'Lagos HQ', roleTitle: 'Legal Counsel', tin: null, rsaNumber: 'RSA-003' }
+        {
+          id: 'emp-chidi',
+          employeeCode: 'LAG-4492',
+          fullName: 'Chidi Okoro',
+          department: 'Engineering',
+          branch: 'Lagos HQ',
+          roleTitle: 'Engineering Analyst',
+          tin: 'TIN-CHIDI',
+          rsaNumber: 'RSA-001',
+          payAssignments: [
+            { componentCode: 'BASIC', componentName: 'Basic Salary', amount: 950_000, activeFrom: '2026-01-01' },
+            { componentCode: 'HOUSING', componentName: 'Housing Allowance', amount: 150_000, activeFrom: '2026-01-01' }
+          ]
+        },
+        {
+          id: 'emp-aisha',
+          employeeCode: 'ABJ-2101',
+          fullName: 'Aisha Abubakar',
+          department: 'Operations',
+          branch: 'Abuja',
+          roleTitle: 'Operations Officer',
+          tin: 'TIN-AISHA',
+          rsaNumber: 'RSA-002',
+          payAssignments: [
+            { componentCode: 'BASIC', componentName: 'Basic Salary', amount: 700_000, activeFrom: '2026-01-01' },
+            { componentCode: 'TRANSPORT', componentName: 'Transport Allowance', amount: 100_000, activeFrom: '2026-01-01' }
+          ]
+        },
+        {
+          id: 'emp-femi',
+          employeeCode: 'LAG-1120',
+          fullName: 'Femi Adebayo',
+          department: 'Legal',
+          branch: 'Lagos HQ',
+          roleTitle: 'Legal Counsel',
+          tin: null,
+          rsaNumber: 'RSA-003',
+          payAssignments: [
+            { componentCode: 'BASIC', componentName: 'Basic Salary', amount: 1_600_000, activeFrom: '2026-01-01' }
+          ]
+        }
       ]),
       update: vi.fn((_companyId, employeeId, update) => ({
         id: employeeId,
@@ -106,8 +144,17 @@ function createFakeApi(
         tin: update.tin,
         rsaNumber: update.rsaNumber,
         status: update.status,
-        hireDate: '2024-02-12'
-      }))
+        hireDate: '2024-02-12',
+        payAssignments: [
+          { componentCode: 'BASIC', componentName: 'Basic Salary', amount: 950_000, activeFrom: '2026-01-01' }
+        ]
+      })),
+      updatePayAssignments: vi.fn((_companyId, _employeeId, payload) => payload.map((assignment) => ({
+        componentCode: assignment.componentCode,
+        componentName: assignment.componentCode === 'BASIC' ? 'Basic Salary' : 'Housing Allowance',
+        amount: assignment.amount,
+        activeFrom: '2026-01-01'
+      })))
     },
     structures: {
       get: vi.fn(() => ({
@@ -322,6 +369,36 @@ describe('App', () => {
       'user-approver'
     )
     expect(await screen.findByText(/employee record saved/i)).toBeInTheDocument()
+  })
+
+  it('lets payroll operations users edit recurring compensation assignments from the employee workspace', async () => {
+    const user = userEvent.setup()
+    const api = createFakeApi('approver')
+    window.haqlyApi = api
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+    await user.click(screen.getByRole('button', { name: /^employees$/i }))
+    await user.clear(screen.getByLabelText(/basic salary amount/i))
+    await user.type(screen.getByLabelText(/basic salary amount/i), '975000')
+    await user.click(screen.getByRole('button', { name: /save compensation/i }))
+
+    expect(api.employees.updatePayAssignments).toHaveBeenCalledWith(
+      'company-demo',
+      'emp-chidi',
+      expect.arrayContaining([
+        expect.objectContaining({
+          componentCode: 'BASIC',
+          amount: 975_000
+        })
+      ]),
+      'user-approver'
+    )
+    expect(await screen.findByText(/compensation lines saved/i)).toBeInTheDocument()
   })
 
   it('shows export success feedback and refreshed history after generating a report file', async () => {
