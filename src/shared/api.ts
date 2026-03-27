@@ -49,6 +49,19 @@ export interface DashboardData {
   netPay: number
   payeTotal: number
   employeeCount: number
+  postingReadiness: {
+    blockingCount: number
+    warningCount: number
+    journalExportReady: boolean
+    bankExportReady: boolean
+    summary: string
+  }
+  liabilities: {
+    payePayable: number
+    pensionPayable: number
+    nhfPayable: number
+    netPayable: number
+  }
   compliance: RemittanceSchedule[]
   pendingTasks: Array<{ id: string; title: string; detail: string }>
   auditLog: Array<{ action: string; createdAt: string }>
@@ -113,6 +126,17 @@ export interface PayrollRunTransitionResult {
 
 export interface ReportData {
   summary: PayrollRunDetail | null
+  financeSummary: {
+    payrollStatus: PayrollRunStatus
+    validation: PayrollRunValidation
+    postingSummary: PayrollPostingSummary
+    exportReadiness: {
+      journal: boolean
+      bank: boolean
+      payslip: boolean
+      message: string
+    }
+  } | null
   exportJobs: Array<{ id: string; type: string; filePath: string; createdAt: string }>
 }
 

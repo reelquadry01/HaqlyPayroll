@@ -257,6 +257,55 @@ function buildPostingSummary(context: DatabaseContext, runId: string): PayrollPo
   }
 }
 
+function buildExportReadiness(status: string) {
+  const journal = status === 'finalized' || status === 'posted'
+  const bank = status === 'finalized' || status === 'posted'
+  const payslip = status === 'approved' || status === 'finalized' || status === 'posted'
+  const message = journal
+    ? 'Finance exports are ready.'
+    : payslip
+      ? 'Finalize payroll before generating journal and bank exports.'
+      : 'Approve payroll before generating final outputs.'
+
+  return {
+    journal,
+    bank,
+    payslip,
+    message
+  }
+}
+
+function assertExportAllowed(status: string, kind: 'journal' | 'bank' | 'payslip'): void {
+  const readiness = buildExportReadiness(status)
+
+  if (kind === 'journal' && !readiness.journal) {
+    throw new Error('Journal export is available only for finalized or posted payroll runs')
+  }
+
+  if (kind === 'bank' && !readiness.bank) {
+    throw new Error('Bank export is available only for finalized or posted payroll runs')
+  }
+
+  if (kind === 'payslip' && !readiness.payslip) {
+    throw new Error('Payslip export is available only for approved, finalized, or posted payroll runs')
+  }
+}
+
+function readEmployeePaymentDetails(context: DatabaseContext, companyId: string) {
+  return context.db
+    .prepare(
+      `SELECT id, full_name AS fullName, bank_name AS bankName, account_number AS accountNumber
+       FROM employees
+       WHERE company_id = ?`
+    )
+    .all(companyId) as Array<{
+      id: string
+      fullName: string
+      bankName: string | null
+      accountNumber: string | null
+    }>
+}
+
 function mapComponent(row: Record<string, unknown>): PayComponentDefinition {
   return {
     code: String(row.code),
@@ -656,22 +705,47 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
   const exports = {
     generateJournalCsv(runId: string) {
       const detail = payrollRuns.getById(runId)
+      assertExportAllowed(detail.status, 'journal')
       const filePath = join(exportDir, `${detail.payPeriod}-journal.csv`)
-      writeFileSync(filePath, ['entry,account,amount', `Dr,Salary Expense,${detail.grossPay}`, `Cr,PAYE Payable,${detail.payeTotal}`, `Cr,Bank,${detail.netPay}`].join('\n'), 'utf8')
+      const rows = [
+        'entry,account,amount',
+        `Dr,Salary Expense,${detail.postingSummary.salaryExpense}`,
+        `Dr,Employer Pension Expense,${detail.postingSummary.employerPensionExpense}`,
+        `Cr,PAYE Payable,${detail.postingSummary.payePayable}`,
+        `Cr,Pension Payable,${detail.postingSummary.pensionPayable}`,
+        `Cr,NHF Payable,${detail.postingSummary.nhfPayable}`,
+        `Cr,Bank,${detail.postingSummary.netPayable}`
+      ]
+      writeFileSync(filePath, rows.join('\n'), 'utf8')
       database.db.prepare('INSERT INTO export_jobs (id, company_id, run_id, type, file_path, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(randomUUID(), detail.companyId, runId, 'journal_csv', filePath, new Date().toISOString())
       return { filePath }
     },
     generateBankScheduleXlsx(runId: string) {
       const detail = payrollRuns.getById(runId)
+      assertExportAllowed(detail.status, 'bank')
       const filePath = join(exportDir, `${detail.payPeriod}-bank-schedule.xlsx`)
       const workbook = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(detail.snapshot.employees.map((employee) => ({ EmployeeId: employee.employeeId, NetPay: employee.netPay }))), 'Bank Schedule')
+      const paymentDetails = new Map(readEmployeePaymentDetails(database, detail.companyId).map((employee) => [employee.id, employee] as const))
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.json_to_sheet(
+          detail.snapshot.employees.map((employee) => ({
+            EmployeeId: employee.employeeId,
+            EmployeeName: paymentDetails.get(employee.employeeId)?.fullName ?? employee.employeeId,
+            BankName: paymentDetails.get(employee.employeeId)?.bankName ?? '',
+            AccountNumber: paymentDetails.get(employee.employeeId)?.accountNumber ?? '',
+            NetPay: employee.netPay
+          }))
+        ),
+        'Bank Schedule'
+      )
       XLSX.writeFile(workbook, filePath)
       database.db.prepare('INSERT INTO export_jobs (id, company_id, run_id, type, file_path, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(randomUUID(), detail.companyId, runId, 'bank_xlsx', filePath, new Date().toISOString())
       return { filePath }
     },
     async generatePayslipPdf(runId: string, employeeId: string) {
       const detail = payrollRuns.getById(runId)
+      assertExportAllowed(detail.status, 'payslip')
       const employee = detail.snapshot.employees.find((candidate) => candidate.employeeId === employeeId)
       if (!employee) throw new Error('Employee payslip not found')
 
@@ -1011,12 +1085,26 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
       get(companyId: string, payPeriod: string) {
         const run = (database.db.prepare('SELECT id FROM payroll_runs WHERE company_id = ? AND pay_period = ?').get(companyId, payPeriod) as { id: string } | undefined) ?? payrollRuns.generate(companyId, payPeriod)
         const detail = payrollRuns.getById(run.id)
+        const exportReadiness = buildExportReadiness(detail.status)
         return {
           payrollStatus: detail.status,
           grossPay: detail.grossPay,
           netPay: detail.netPay,
           payeTotal: detail.payeTotal,
           employeeCount: detail.employeeCount,
+          postingReadiness: {
+            blockingCount: detail.validation.blockingCount,
+            warningCount: detail.validation.warningCount,
+            journalExportReady: exportReadiness.journal,
+            bankExportReady: exportReadiness.bank,
+            summary: exportReadiness.message
+          },
+          liabilities: {
+            payePayable: detail.postingSummary.payePayable,
+            pensionPayable: detail.postingSummary.pensionPayable,
+            nhfPayable: detail.postingSummary.nhfPayable,
+            netPayable: detail.postingSummary.netPayable
+          },
           compliance: [
             buildPayeSchedule({ amount: detail.payeTotal, paymentDate: `${payPeriod}-30`, today: `${payPeriod}-30`, reference: payPeriod }),
             buildPensionSchedule({ amount: roundCurrency(detail.payeTotal * 0.35), paymentDate: `${payPeriod}-30`, today: `${payPeriod}-30`, reference: payPeriod })
@@ -1055,8 +1143,17 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
     reports: {
       get(companyId: string, payPeriod: string) {
         const run = database.db.prepare('SELECT id FROM payroll_runs WHERE company_id = ? AND pay_period = ?').get(companyId, payPeriod) as { id: string } | undefined
+        const summary = run ? payrollRuns.getById(run.id) : null
         return {
-          summary: run ? payrollRuns.getById(run.id) : null,
+          summary,
+          financeSummary: summary
+            ? {
+                payrollStatus: summary.status,
+                validation: summary.validation,
+                postingSummary: summary.postingSummary,
+                exportReadiness: buildExportReadiness(summary.status)
+              }
+            : null,
           exportJobs: database.db.prepare('SELECT id, type, file_path AS filePath, created_at AS createdAt FROM export_jobs WHERE company_id = ? ORDER BY created_at DESC').all(companyId)
         }
       }

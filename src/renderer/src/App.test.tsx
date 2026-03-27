@@ -16,7 +16,7 @@ declare global {
 function createFakeApi(
   role: 'approver' | 'reviewer',
   options: {
-    runStatus?: 'draft' | 'validated' | 'in_review' | 'approved' | 'finalized'
+    runStatus?: 'draft' | 'validated' | 'in_review' | 'approved' | 'finalized' | 'posted'
   } = {}
 ): HaqlyApi {
   const runStatus = options.runStatus ?? 'draft'
@@ -270,6 +270,21 @@ function createFakeApi(
         netPay: 3_238_850,
         payeTotal: 614_650,
         employeeCount: 3,
+        postingReadiness: {
+          blockingCount: 0,
+          warningCount: 1,
+          journalExportReady: runStatus === 'finalized' || runStatus === 'posted',
+          bankExportReady: runStatus === 'finalized' || runStatus === 'posted',
+          summary: runStatus === 'finalized' || runStatus === 'posted'
+            ? 'Finance exports are ready.'
+            : 'Finalize payroll to enable journal and bank exports.'
+        },
+        liabilities: {
+          payePayable: 614_650,
+          pensionPayable: 469_800,
+          nhfPayable: 56_750,
+          netPayable: 3_238_850
+        },
         compliance: [{ type: 'paye', paymentDate: '2026-04-30', dueDate: '2026-05-10', status: 'due_soon', amount: 614_650, reference: '2026-04' }],
         pendingTasks: [{ id: 'arrears', title: 'Review Arrears for Dept A', detail: '2 employees affected by back-dated adjustments' }],
         auditLog: [{ action: 'payroll.generated', createdAt: '2026-04-30T08:30:00Z' }]
@@ -300,7 +315,25 @@ function createFakeApi(
       }))
     },
     reports: {
-      get: vi.fn(() => ({ summary: payrollRun, exportJobs: [] }))
+      get: vi.fn(() => ({
+        summary: payrollRun,
+        financeSummary: {
+          payrollStatus: runStatus,
+          validation: payrollRun.validation,
+          postingSummary: payrollRun.postingSummary,
+          exportReadiness: {
+            journal: runStatus === 'finalized' || runStatus === 'posted',
+            bank: runStatus === 'finalized' || runStatus === 'posted',
+            payslip: runStatus === 'approved' || runStatus === 'finalized' || runStatus === 'posted',
+            message: runStatus === 'finalized' || runStatus === 'posted'
+              ? 'Finance exports are ready.'
+              : runStatus === 'approved'
+                ? 'Finalize payroll before generating journal and bank exports.'
+                : 'Approve payroll before generating final outputs.'
+          }
+        },
+        exportJobs: []
+      }))
     },
     exports: {
       generateJournalCsv: vi.fn(() => ({ filePath: 'journal.csv' })),
@@ -431,6 +464,23 @@ describe('App', () => {
     expect(screen.getByText(/\+₦420,000\.00/i)).toBeInTheDocument()
     expect(screen.getByText(/\+₦268,850\.00/i)).toBeInTheDocument()
     expect(screen.getByText(/\+₦91,150\.00/i)).toBeInTheDocument()
+  })
+
+  it('shows posting readiness and liability visibility on the dashboard', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+
+    expect(screen.getByText(/blocking issues/i)).toBeInTheDocument()
+    expect(screen.getByText(/warnings/i)).toBeInTheDocument()
+    expect(screen.getByText(/paye liability/i)).toBeInTheDocument()
+    expect(screen.getByText(/bank liability/i)).toBeInTheDocument()
+    expect(screen.getByText(/finalize payroll to enable journal and bank exports/i)).toBeInTheDocument()
   })
 
   it('shows a validation action for payroll officers on draft runs', async () => {
@@ -647,7 +697,7 @@ describe('App', () => {
   it('shows export success feedback and refreshed history after generating a report file', async () => {
     const user = userEvent.setup()
     const exportJobs = [{ id: 'existing-export', type: 'journal_csv', filePath: 'old-journal.csv', createdAt: '2026-04-30T08:30:00Z' }]
-    const api = createFakeApi('approver')
+    const api = createFakeApi('approver', { runStatus: 'finalized' })
     api.reports.get = vi
       .fn()
       .mockReturnValueOnce({ summary: api.payrollRuns.getById('run-apr'), exportJobs: [] })
@@ -666,6 +716,45 @@ describe('App', () => {
     expect(await screen.findByText(/export ready/i)).toBeInTheDocument()
     expect(screen.getAllByText(/journal\.csv/i).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: /reveal file/i }).length).toBeGreaterThan(0)
+  })
+
+  it('shows finance export gating on draft payroll runs in the reports center', async () => {
+    const user = userEvent.setup()
+    const api = createFakeApi('approver', { runStatus: 'draft' })
+    window.haqlyApi = api
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+    await user.click(screen.getByRole('button', { name: /^reports$/i }))
+
+    expect(await screen.findByText(/approve payroll before generating final outputs/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /journal csv/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /bank xlsx/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /payslip pdf/i })).toBeDisabled()
+  })
+
+  it('enables finance exports and shows liability summary once payroll is finalized', async () => {
+    const user = userEvent.setup()
+    const api = createFakeApi('approver', { runStatus: 'finalized' })
+    window.haqlyApi = api
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+    await user.click(screen.getByRole('button', { name: /^reports$/i }))
+
+    expect(await screen.findByText(/finance exports are ready/i)).toBeInTheDocument()
+    expect(screen.getByText(/pension payable/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /journal csv/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /bank xlsx/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /payslip pdf/i })).toBeEnabled()
   })
 
   it('lets payroll operators add a manual variable input from the payroll inputs workspace', async () => {

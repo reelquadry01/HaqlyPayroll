@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -77,6 +77,93 @@ describe('service facade integration', () => {
     expect(existsSync(journal.filePath)).toBe(true)
     expect(existsSync(bankSchedule.filePath)).toBe(true)
     expect(existsSync(payslip.filePath)).toBe(true)
+  })
+
+  it('blocks journal and bank exports until payroll is finalized or posted', async () => {
+    const database = createDatabaseContext({ filePath: ':memory:' })
+    bootstrapDatabase(database)
+    seedDemoData(database)
+
+    const services = createServiceFacade({
+      database,
+      exportDir
+    })
+
+    const company = services.companies.list()[0]
+    const draftRun = services.payrollRuns.generate(company.id, '2026-04')
+
+    expect(() => services.exports.generateJournalCsv(draftRun.id)).toThrow(/finalized or posted/i)
+    expect(() => services.exports.generateBankScheduleXlsx(draftRun.id)).toThrow(/finalized or posted/i)
+    await expect(services.exports.generatePayslipPdf(draftRun.id, 'emp-chidi')).rejects.toThrow(/approved/i)
+  })
+
+  it('writes a liability-aware journal export once a payroll run is finalized', () => {
+    const database = createDatabaseContext({ filePath: ':memory:' })
+    bootstrapDatabase(database)
+    seedDemoData(database)
+
+    const services = createServiceFacade({
+      database,
+      exportDir
+    })
+
+    const company = services.companies.list()[0]
+    const draftRun = services.payrollRuns.generate(company.id, '2026-04')
+
+    ;(services.payrollRuns as any).validate(draftRun.id, 'user-payroll')
+    services.payrollRuns.submitForReview(draftRun.id, 'user-payroll')
+    services.payrollRuns.approve(draftRun.id, 'user-approver')
+    ;(services.payrollRuns as any).finalize(draftRun.id, 'user-approver')
+
+    const journal = services.exports.generateJournalCsv(draftRun.id)
+    const contents = readFileSync(journal.filePath, 'utf8')
+
+    expect(contents).toContain('Dr,Salary Expense')
+    expect(contents).toContain('Dr,Employer Pension Expense')
+    expect(contents).toContain('Cr,PAYE Payable')
+    expect(contents).toContain('Cr,Pension Payable')
+    expect(contents).toContain('Cr,NHF Payable')
+    expect(contents).toContain('Cr,Bank')
+  })
+
+  it('returns posting readiness and finance summary on the dashboard and reports surfaces', () => {
+    const database = createDatabaseContext({ filePath: ':memory:' })
+    bootstrapDatabase(database)
+    seedDemoData(database)
+
+    const services = createServiceFacade({
+      database,
+      exportDir
+    })
+
+    const dashboard = services.dashboard.get('company-demo', '2026-04') as any
+    const reports = services.reports.get('company-demo', '2026-04') as any
+
+    expect(dashboard.postingReadiness).toEqual(
+      expect.objectContaining({
+        blockingCount: 0,
+        warningCount: 1,
+        journalExportReady: false,
+        bankExportReady: false
+      })
+    )
+    expect(dashboard.liabilities).toEqual(
+      expect.objectContaining({
+        payePayable: expect.any(Number),
+        pensionPayable: expect.any(Number),
+        netPayable: expect.any(Number)
+      })
+    )
+    expect(reports.financeSummary).toEqual(
+      expect.objectContaining({
+        payrollStatus: 'draft',
+        exportReadiness: expect.objectContaining({
+          journal: false,
+          bank: false,
+          payslip: false
+        })
+      })
+    )
   })
 
   it('blocks payroll finalization when validation finds blocking exceptions', () => {

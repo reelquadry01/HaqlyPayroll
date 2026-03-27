@@ -36,6 +36,7 @@ button, input, select { font: inherit; }
 .wizard-step.active { background: linear-gradient(135deg, rgba(13,37,93,0.12), rgba(159,212,200,0.24)); }
 .detail-card { display: flex; flex-direction: column; gap: 22px; }
 .detail-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.finance-summary-grid { align-items: stretch; }
 .button-row { display: flex; gap: 12px; flex-wrap: wrap; }
 .section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .pill { padding: 8px 12px; border-radius: 999px; font-size: 0.78rem; text-transform: capitalize; background: var(--paper-deep); }
