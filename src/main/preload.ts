@@ -31,8 +31,11 @@ const api: HaqlyApi = {
     generate: (companyId, payPeriod) => ipcRenderer.invoke('haqly:payroll-runs:generate', companyId, payPeriod),
     list: (companyId) => ipcRenderer.invoke('haqly:payroll-runs:list', companyId),
     getById: (runId) => ipcRenderer.invoke('haqly:payroll-runs:get', runId),
+    validate: (runId, userId) => ipcRenderer.invoke('haqly:payroll-runs:validate', runId, userId),
     submitForReview: (runId, userId) => ipcRenderer.invoke('haqly:payroll-runs:review', runId, userId),
-    approve: (runId, userId) => ipcRenderer.invoke('haqly:payroll-runs:approve', runId, userId)
+    approve: (runId, userId) => ipcRenderer.invoke('haqly:payroll-runs:approve', runId, userId),
+    finalize: (runId, userId) => ipcRenderer.invoke('haqly:payroll-runs:finalize', runId, userId),
+    post: (runId, userId) => ipcRenderer.invoke('haqly:payroll-runs:post', runId, userId)
   },
   dashboard: {
     get: (companyId, payPeriod) => ipcRenderer.invoke('haqly:dashboard:get', companyId, payPeriod)

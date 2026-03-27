@@ -27,6 +27,7 @@ function createLine(component: PayComponentDefinition, amount: number): PayrollR
     amount: roundCurrency(amount),
     taxable: component.taxable,
     pensionable: component.pensionable,
+    nhfApplicable: component.nhfApplicable,
     kind: component.kind
   }
 }
@@ -66,6 +67,7 @@ export function calculateEmployeePayroll(input: PayrollComputationInput): Payrol
         amount,
         taxable: false,
         pensionable: false,
+        nhfApplicable: false,
         kind: 'deduction' as const,
         appliesBeforeTax: rule.appliesBeforeTax
       }
@@ -92,6 +94,7 @@ export function calculateEmployeePayroll(input: PayrollComputationInput): Payrol
       amount: paye,
       taxable: false,
       pensionable: false,
+      nhfApplicable: false,
       kind: 'deduction'
     }
   ]

@@ -16,7 +16,7 @@ declare global {
 function createFakeApi(
   role: 'approver' | 'reviewer',
   options: {
-    runStatus?: 'draft' | 'in_review' | 'approved'
+    runStatus?: 'draft' | 'validated' | 'in_review' | 'approved' | 'finalized'
   } = {}
 ): HaqlyApi {
   const runStatus = options.runStatus ?? 'draft'
@@ -34,6 +34,29 @@ function createFakeApi(
       grossPayDelta: 420_000,
       netPayDelta: 268_850,
       payeDelta: 91_150
+    },
+    validation: {
+      blockingCount: 0,
+      warningCount: 1,
+      exceptions: [
+        {
+          code: 'missing_tin',
+          title: 'Missing TIN',
+          severity: 'warning',
+          employeeId: 'emp-femi',
+          employeeName: 'Femi Adebayo',
+          detail: 'Employee record is missing a TIN, which may affect filing readiness.'
+        }
+      ]
+    },
+    postingSummary: {
+      salaryExpense: 4_320_000,
+      employerPensionExpense: 261_000,
+      payePayable: 614_650,
+      pensionPayable: 469_800,
+      nhfPayable: 56_750,
+      netPayable: 3_238_850,
+      totalCredits: 4_380_050
     },
     snapshot: {
       runId: 'run-apr',
@@ -234,7 +257,10 @@ function createFakeApi(
       generate: vi.fn(() => payrollRun),
       list: vi.fn(() => [payrollRun]),
       getById: vi.fn(() => payrollRun),
+      validate: vi.fn(() => ({ id: 'run-apr', status: 'validated', blockingCount: 0, warningCount: 1 })),
       approve: vi.fn(() => ({ id: 'run-apr', status: 'approved' })),
+      finalize: vi.fn(() => ({ id: 'run-apr', status: 'finalized' })),
+      post: vi.fn(() => ({ id: 'run-apr', status: 'posted' })),
       submitForReview: vi.fn(() => ({ id: 'run-apr', status: 'in_review' }))
     },
     dashboard: {
@@ -386,7 +412,7 @@ describe('App', () => {
     await user.click(await screen.findByRole('button', { name: /chidi okoro/i }))
 
     expect(await screen.findByText(/performance bonus/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /approve & lock payroll/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /approve payroll/i })).toBeInTheDocument()
   })
 
   it('shows payroll variance against the previous month in the payroll review screen', async () => {
@@ -407,7 +433,7 @@ describe('App', () => {
     expect(screen.getByText(/\+₦91,150\.00/i)).toBeInTheDocument()
   })
 
-  it('shows a review handoff action for payroll officers on draft runs', async () => {
+  it('shows a validation action for payroll officers on draft runs', async () => {
     const payrollOfficerApi = {
       ...createFakeApi('reviewer'),
       auth: {
@@ -426,8 +452,30 @@ describe('App', () => {
     await screen.findByText(/haqly demo industries/i)
     await user.click(screen.getByRole('button', { name: /^payroll$/i }))
 
+    expect(await screen.findByRole('button', { name: /validate payroll/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /send to review/i })).not.toBeInTheDocument()
+  })
+
+  it('shows a review handoff action for payroll officers after validation', async () => {
+    const payrollOfficerApi = {
+      ...createFakeApi('reviewer', { runStatus: 'validated' }),
+      auth: {
+        login: vi.fn(() => ({ id: 'user-payroll', email: 'payroll@haqly.local', role: 'payroll_officer', displayName: 'Amina Yusuf' }))
+      }
+    } as unknown as HaqlyApi
+
+    window.haqlyApi = payrollOfficerApi
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'payroll@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+    await user.click(screen.getByRole('button', { name: /^payroll$/i }))
+
     expect(await screen.findByRole('button', { name: /send to review/i })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /approve & lock payroll/i })).not.toBeInTheDocument()
   })
 
   it('hides approval controls for reviewers while keeping the payroll breakdown visible', async () => {
@@ -444,7 +492,40 @@ describe('App', () => {
     await user.click(await screen.findByRole('button', { name: /chidi okoro/i }))
 
     expect(await screen.findByText(/paye tax/i)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /approve & lock payroll/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /approve payroll/i })).not.toBeInTheDocument()
+  })
+
+  it('shows validation exceptions and posting summary in the payroll workspace', async () => {
+    const user = userEvent.setup()
+    window.haqlyApi = createFakeApi('approver', { runStatus: 'approved' })
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+    await user.click(screen.getByRole('button', { name: /^payroll$/i }))
+
+    expect(await screen.findByText(/validation exceptions/i)).toBeInTheDocument()
+    expect(screen.getByText(/missing tin/i)).toBeInTheDocument()
+    expect(screen.getByText(/posting summary/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /finalize payroll/i })).toBeInTheDocument()
+  })
+
+  it('shows a posting action once a payroll run has been finalized', async () => {
+    const user = userEvent.setup()
+    window.haqlyApi = createFakeApi('approver', { runStatus: 'finalized' })
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+    await user.click(screen.getByRole('button', { name: /^payroll$/i }))
+
+    expect(await screen.findByRole('button', { name: /post payroll/i })).toBeInTheDocument()
   })
 
   it('shows import batch health in the payroll inputs center', async () => {

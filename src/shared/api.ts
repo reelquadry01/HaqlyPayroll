@@ -1,4 +1,14 @@
-import type { PayrollInputLine, PayrollRunSnapshot, PayrollRunVariance, RemittanceSchedule, Role, TaxPolicyPack } from './types'
+import type {
+  PayrollInputLine,
+  PayrollPostingSummary,
+  PayrollRunSnapshot,
+  PayrollRunStatus,
+  PayrollRunValidation,
+  PayrollRunVariance,
+  RemittanceSchedule,
+  Role,
+  TaxPolicyPack
+} from './types'
 
 export interface AuthSession {
   id: string
@@ -79,7 +89,7 @@ export interface PayComponentCreateInput extends PayComponentUpdateInput {
 export interface PayrollRunSummary {
   id: string
   payPeriod?: string
-  status: string
+  status: PayrollRunStatus
   grossPay: number
   netPay: number
   payeTotal: number
@@ -90,6 +100,15 @@ export interface PayrollRunDetail extends PayrollRunSummary {
   companyId: string
   snapshot: PayrollRunSnapshot
   variance?: PayrollRunVariance
+  validation: PayrollRunValidation
+  postingSummary: PayrollPostingSummary
+}
+
+export interface PayrollRunTransitionResult {
+  id: string
+  status: PayrollRunStatus
+  blockingCount?: number
+  warningCount?: number
 }
 
 export interface ReportData {
@@ -252,8 +271,11 @@ export interface HaqlyApi {
     generate(companyId: string, payPeriod: string): Promise<PayrollRunSummary> | PayrollRunSummary
     list(companyId: string): Promise<PayrollRunSummary[]> | PayrollRunSummary[]
     getById(runId: string): Promise<PayrollRunDetail> | PayrollRunDetail
-    submitForReview(runId: string, userId: string): Promise<{ id: string; status: string }> | { id: string; status: string }
-    approve(runId: string, userId: string): Promise<{ id: string; status: string }> | { id: string; status: string }
+    validate(runId: string, userId: string): Promise<PayrollRunTransitionResult> | PayrollRunTransitionResult
+    submitForReview(runId: string, userId: string): Promise<PayrollRunTransitionResult> | PayrollRunTransitionResult
+    approve(runId: string, userId: string): Promise<PayrollRunTransitionResult> | PayrollRunTransitionResult
+    finalize(runId: string, userId: string): Promise<PayrollRunTransitionResult> | PayrollRunTransitionResult
+    post(runId: string, userId: string): Promise<PayrollRunTransitionResult> | PayrollRunTransitionResult
   }
   dashboard: {
     get(companyId: string, payPeriod: string): Promise<DashboardData> | DashboardData

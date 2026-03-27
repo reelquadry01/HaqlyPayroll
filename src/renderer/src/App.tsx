@@ -126,9 +126,23 @@ export function App() {
     try {
       await window.haqlyApi.payrollRuns.approve(data.payrollRun.id, session.id)
       await refreshCompanyData(data.company, selectedPayPeriod)
-      setNotice({ tone: 'success', message: 'Payroll approved and locked.' })
+      setNotice({ tone: 'success', message: 'Payroll approved.' })
     } catch (actionError) {
       setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to approve payroll.' })
+    }
+  }
+
+  async function handleValidate() {
+    if (!data || !session) return
+    try {
+      const result = await window.haqlyApi.payrollRuns.validate(data.payrollRun.id, session.id)
+      await refreshCompanyData(data.company, selectedPayPeriod)
+      setNotice({
+        tone: 'success',
+        message: `Payroll validated. ${result.blockingCount ?? 0} blocking issue(s), ${result.warningCount ?? 0} warning(s).`
+      })
+    } catch (actionError) {
+      setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to validate payroll.' })
     }
   }
 
@@ -140,6 +154,28 @@ export function App() {
       setNotice({ tone: 'success', message: 'Payroll run submitted for review.' })
     } catch (actionError) {
       setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to submit payroll for review.' })
+    }
+  }
+
+  async function handleFinalize() {
+    if (!data || !session) return
+    try {
+      await window.haqlyApi.payrollRuns.finalize(data.payrollRun.id, session.id)
+      await refreshCompanyData(data.company, selectedPayPeriod)
+      setNotice({ tone: 'success', message: 'Payroll finalized for posting.' })
+    } catch (actionError) {
+      setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to finalize payroll.' })
+    }
+  }
+
+  async function handlePost() {
+    if (!data || !session) return
+    try {
+      await window.haqlyApi.payrollRuns.post(data.payrollRun.id, session.id)
+      await refreshCompanyData(data.company, selectedPayPeriod)
+      setNotice({ tone: 'success', message: 'Payroll posted successfully.' })
+    } catch (actionError) {
+      setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to post payroll.' })
     }
   }
 
@@ -373,7 +409,10 @@ export function App() {
           onSelectEmployee={setSelectedEmployeeId}
           selectedEmployee={selectedPayrollEmployee}
           role={session.role}
+          onValidate={handleValidate}
           onApprove={handleApprove}
+          onFinalize={handleFinalize}
+          onPost={handlePost}
           onSubmitForReview={handleSubmitForReview}
         />
       ) : null}

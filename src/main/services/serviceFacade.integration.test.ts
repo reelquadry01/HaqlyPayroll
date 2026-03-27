@@ -18,7 +18,7 @@ describe('service facade integration', () => {
     rmSync(exportDir, { recursive: true, force: true })
   })
 
-  it('creates, approves, freezes, and exports a payroll run from seeded SQLite data', async () => {
+  it('validates, approves, finalizes, posts, and exports a payroll run from seeded SQLite data', async () => {
     const database = createDatabaseContext({ filePath: ':memory:' })
     bootstrapDatabase(database)
     seedDemoData(database)
@@ -35,13 +35,39 @@ describe('service facade integration', () => {
     expect(draftRun.employeeCount).toBe(3)
     expect(draftRun.grossPay).toBeGreaterThan(0)
 
+    const validatedRun = (services.payrollRuns as any).validate(draftRun.id, 'user-payroll')
     const reviewRun = services.payrollRuns.submitForReview(draftRun.id, 'user-payroll')
     const approvedRun = services.payrollRuns.approve(draftRun.id, 'user-approver')
+    const finalizedRun = (services.payrollRuns as any).finalize(draftRun.id, 'user-approver')
+    const postedRun = (services.payrollRuns as any).post(draftRun.id, 'user-approver')
     const detail = services.payrollRuns.getById(draftRun.id)
 
+    expect(validatedRun.status).toBe('validated')
+    expect(validatedRun.warningCount).toBeGreaterThanOrEqual(1)
     expect(reviewRun.status).toBe('in_review')
     expect(approvedRun.status).toBe('approved')
+    expect(finalizedRun.status).toBe('finalized')
+    expect(postedRun.status).toBe('posted')
     expect(detail.snapshot.approvedBy).toBe('user-approver')
+    expect(detail.snapshot.status).toBe('posted')
+    expect((detail as any).validation.blockingCount).toBe(0)
+    expect((detail as any).validation.exceptions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'missing_tin',
+          severity: 'warning',
+          employeeId: 'emp-femi'
+        })
+      ])
+    )
+    expect((detail as any).postingSummary).toEqual(
+      expect.objectContaining({
+        salaryExpense: detail.grossPay,
+        payePayable: detail.payeTotal,
+        netPayable: detail.netPay,
+        totalCredits: expect.any(Number)
+      })
+    )
     expect(() => services.payrollRuns.generate(company.id, '2026-04')).toThrow(/immutable/i)
 
     const journal = services.exports.generateJournalCsv(draftRun.id)
@@ -51,6 +77,55 @@ describe('service facade integration', () => {
     expect(existsSync(journal.filePath)).toBe(true)
     expect(existsSync(bankSchedule.filePath)).toBe(true)
     expect(existsSync(payslip.filePath)).toBe(true)
+  })
+
+  it('blocks payroll finalization when validation finds blocking exceptions', () => {
+    const database = createDatabaseContext({ filePath: ':memory:' })
+    bootstrapDatabase(database)
+    seedDemoData(database)
+
+    const services = createServiceFacade({
+      database,
+      exportDir
+    })
+
+    services.employees.update(
+      'company-demo',
+      'emp-aisha',
+      {
+        fullName: 'Aisha Abubakar',
+        department: 'Operations',
+        branch: 'Abuja',
+        roleTitle: 'Operations Officer',
+        employeeType: 'contract',
+        bankName: '',
+        accountNumber: '',
+        tin: 'TIN-AISHA',
+        rsaNumber: 'RSA-002',
+        status: 'active'
+      },
+      'user-payroll'
+    )
+
+    const company = services.companies.list()[0]
+    const draftRun = services.payrollRuns.generate(company.id, '2026-04')
+
+    expect((services.payrollRuns as any).validate(draftRun.id, 'user-payroll').status).toBe('validated')
+    expect(services.payrollRuns.submitForReview(draftRun.id, 'user-payroll').status).toBe('in_review')
+    expect(services.payrollRuns.approve(draftRun.id, 'user-approver').status).toBe('approved')
+    expect(() => (services.payrollRuns as any).finalize(draftRun.id, 'user-approver')).toThrow(/blocking exceptions/i)
+
+    const detail = services.payrollRuns.getById(draftRun.id) as any
+
+    expect(detail.validation.exceptions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'missing_bank_details',
+          severity: 'blocking',
+          employeeId: 'emp-aisha'
+        })
+      ])
+    )
   })
 
   it('rejects payroll approval for users without approver privileges', () => {
@@ -84,6 +159,7 @@ describe('service facade integration', () => {
 
     expect(() => services.payrollRuns.approve(draftRun.id, 'user-approver')).toThrow(/review/i)
 
+    expect((services.payrollRuns as any).validate(draftRun.id, 'user-payroll').status).toBe('validated')
     const reviewRun = services.payrollRuns.submitForReview(draftRun.id, 'user-payroll')
 
     expect(reviewRun.status).toBe('in_review')

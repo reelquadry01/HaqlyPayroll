@@ -1,6 +1,6 @@
 export type Role = 'admin' | 'payroll_officer' | 'reviewer' | 'approver'
 
-export type PayrollRunStatus = 'draft' | 'in_review' | 'approved' | 'posted' | 'reversed'
+export type PayrollRunStatus = 'draft' | 'validated' | 'in_review' | 'approved' | 'finalized' | 'posted' | 'reversed'
 
 export type RemittanceStatus = 'not_due' | 'due_soon' | 'overdue' | 'remitted' | 'pending'
 
@@ -119,6 +119,7 @@ export interface PayrollResultLine {
   amount: number
   taxable: boolean
   pensionable: boolean
+  nhfApplicable: boolean
   kind: PayComponentKind
 }
 
@@ -150,6 +151,31 @@ export interface PayrollRunVariance {
   grossPayDelta: number
   netPayDelta: number
   payeDelta: number
+}
+
+export interface PayrollValidationException {
+  code: 'missing_tin' | 'missing_rsa' | 'missing_bank_details' | 'non_positive_net_pay'
+  title: string
+  severity: 'warning' | 'blocking'
+  employeeId?: string
+  employeeName?: string
+  detail: string
+}
+
+export interface PayrollRunValidation {
+  blockingCount: number
+  warningCount: number
+  exceptions: PayrollValidationException[]
+}
+
+export interface PayrollPostingSummary {
+  salaryExpense: number
+  employerPensionExpense: number
+  payePayable: number
+  pensionPayable: number
+  nhfPayable: number
+  netPayable: number
+  totalCredits: number
 }
 
 export interface RemittanceSchedule {

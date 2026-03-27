@@ -12,6 +12,7 @@ import type {
   EmployeePayAssignmentUpdateInput,
   EmployeeUpdateInput,
   LoanCreateInput,
+  PayrollRunTransitionResult,
   PayComponentCreateInput,
   LoanStatus,
   PayComponentUpdateInput,
@@ -23,7 +24,9 @@ import type {
   EmployeeProfile,
   PayComponentDefinition,
   PayrollInputLine,
+  PayrollPostingSummary,
   PayrollRunSnapshot,
+  PayrollRunValidation,
   PayrollRunVariance,
   Role
 } from '@shared/types'
@@ -87,6 +90,170 @@ function buildPayrollVariance(context: DatabaseContext, companyId: string, payPe
     grossPayDelta: roundCurrency(totals.grossPay - previousRun.grossPay),
     netPayDelta: roundCurrency(totals.netPay - previousRun.netPay),
     payeDelta: roundCurrency(totals.payeTotal - previousRun.payeTotal)
+  }
+}
+
+function readRunSummary(context: DatabaseContext, runId: string) {
+  return context.db
+    .prepare('SELECT id, company_id AS companyId, pay_period AS payPeriod, status, gross_pay AS grossPay, net_pay AS netPay, paye_total AS payeTotal, employee_count AS employeeCount FROM payroll_runs WHERE id = ?')
+    .get(runId) as {
+    id: string
+    companyId: string
+    payPeriod: string
+    status: string
+    grossPay: number
+    netPay: number
+    payeTotal: number
+    employeeCount: number
+  } | undefined
+}
+
+function readRunSnapshot(context: DatabaseContext, runId: string) {
+  const record = context.db.prepare('SELECT snapshot_json AS snapshotJson FROM payroll_snapshots WHERE run_id = ?').get(runId) as { snapshotJson: string } | undefined
+  if (!record) {
+    throw new Error('Payroll snapshot not found')
+  }
+
+  return parseJson<PayrollRunSnapshot>(record.snapshotJson)
+}
+
+function writeRunSnapshot(context: DatabaseContext, runId: string, snapshot: PayrollRunSnapshot): void {
+  context.db.prepare('UPDATE payroll_snapshots SET snapshot_json = ? WHERE run_id = ?').run(JSON.stringify(snapshot), runId)
+}
+
+function readValidationEmployees(context: DatabaseContext, companyId: string) {
+  return context.db
+    .prepare(
+      `SELECT id, full_name AS fullName, bank_name AS bankName, account_number AS accountNumber, tin, rsa_number AS rsaNumber, nhf_flag AS nhfFlag
+       FROM employees
+       WHERE company_id = ?`
+    )
+    .all(companyId) as Array<{
+      id: string
+      fullName: string
+      bankName: string | null
+      accountNumber: string | null
+      tin: string | null
+      rsaNumber: string | null
+      nhfFlag: number
+    }>
+}
+
+function buildPayrollValidation(context: DatabaseContext, runId: string): PayrollRunValidation {
+  const run = readRunSummary(context, runId)
+  if (!run) {
+    throw new Error('Payroll run not found')
+  }
+
+  const snapshot = readRunSnapshot(context, runId)
+  const employees = readValidationEmployees(context, run.companyId)
+  const employeeMap = new Map(employees.map((employee) => [employee.id, employee] as const))
+  const exceptions: PayrollRunValidation['exceptions'] = []
+
+  for (const employee of employees) {
+    if (!employee.tin?.trim()) {
+      exceptions.push({
+        code: 'missing_tin',
+        title: 'Missing TIN',
+        severity: 'warning',
+        employeeId: employee.id,
+        employeeName: employee.fullName,
+        detail: 'Employee record is missing a TIN, which may affect filing readiness.'
+      })
+    }
+
+    if (!employee.rsaNumber?.trim()) {
+      exceptions.push({
+        code: 'missing_rsa',
+        title: 'Missing RSA',
+        severity: 'warning',
+        employeeId: employee.id,
+        employeeName: employee.fullName,
+        detail: 'Employee record is missing an RSA number for pension remittance.'
+      })
+    }
+
+    if (!employee.bankName?.trim() || !employee.accountNumber?.trim()) {
+      exceptions.push({
+        code: 'missing_bank_details',
+        title: 'Missing Bank Details',
+        severity: 'blocking',
+        employeeId: employee.id,
+        employeeName: employee.fullName,
+        detail: 'Employee must have both bank name and account number before payroll can be finalized.'
+      })
+    }
+  }
+
+  for (const employee of snapshot.employees) {
+    if (employee.netPay <= 0) {
+      exceptions.push({
+        code: 'non_positive_net_pay',
+        title: 'Non-positive Net Pay',
+        severity: 'blocking',
+        employeeId: employee.employeeId,
+        employeeName: employeeMap.get(employee.employeeId)?.fullName,
+        detail: 'Net pay is zero or negative and requires payroll correction before posting.'
+      })
+    }
+  }
+
+  return {
+    blockingCount: exceptions.filter((exception) => exception.severity === 'blocking').length,
+    warningCount: exceptions.filter((exception) => exception.severity === 'warning').length,
+    exceptions
+  }
+}
+
+function buildPostingSummary(context: DatabaseContext, runId: string): PayrollPostingSummary {
+  const run = readRunSummary(context, runId)
+  if (!run) {
+    throw new Error('Payroll run not found')
+  }
+
+  const settings = readCompanySettings(context, run.companyId)
+  const snapshot = readRunSnapshot(context, runId)
+  const employees = readValidationEmployees(context, run.companyId)
+  const employeeMap = new Map(employees.map((employee) => [employee.id, employee] as const))
+
+  const pensionableGross = roundCurrency(
+    snapshot.employees.reduce(
+      (sum, employee) =>
+        sum +
+        employee.recurringLines
+          .concat(employee.variableLines)
+          .filter((line) => line.kind === 'earning' && line.pensionable)
+          .reduce((lineSum, line) => lineSum + line.amount, 0),
+      0
+    )
+  )
+
+  const nhfBase = roundCurrency(
+    snapshot.employees.reduce(
+      (sum, employee) =>
+        sum +
+        employee.recurringLines
+          .concat(employee.variableLines)
+          .filter((line) => line.kind === 'earning' && line.nhfApplicable && Boolean(employeeMap.get(employee.employeeId)?.nhfFlag))
+          .reduce((lineSum, line) => lineSum + line.amount, 0),
+      0
+    )
+  )
+
+  const employeePension = roundCurrency((pensionableGross * settings.employeePensionRate) / 100)
+  const employerPensionExpense = roundCurrency((pensionableGross * settings.employerPensionRate) / 100)
+  const pensionPayable = roundCurrency(employeePension + employerPensionExpense)
+  const nhfPayable = settings.nhfEnabled ? roundCurrency((nhfBase * settings.nhfRate) / 100) : 0
+  const totalCredits = roundCurrency(run.netPay + run.payeTotal + pensionPayable + nhfPayable)
+
+  return {
+    salaryExpense: run.grossPay,
+    employerPensionExpense,
+    payePayable: run.payeTotal,
+    pensionPayable,
+    nhfPayable,
+    netPayable: run.netPay,
+    totalCredits
   }
 }
 
@@ -278,7 +445,7 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
   const payrollRuns = {
     generate(companyId: string, payPeriod: string) {
       const existingRun = database.db.prepare('SELECT id, status FROM payroll_runs WHERE company_id = ? AND pay_period = ?').get(companyId, payPeriod) as { id: string; status: string } | undefined
-      if (existingRun?.status === 'approved') {
+      if (existingRun && ['approved', 'finalized', 'posted'].includes(existingRun.status)) {
         throw new Error('Approved payroll run is immutable')
       }
 
@@ -348,6 +515,33 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
       writeAuditLog(database, companyId, 'payroll.generated', 'payroll_run', summary.id, undefined, { payPeriod })
       return summary
     },
+    validate(runId: string, userId: string): PayrollRunTransitionResult {
+      const run = database.db.prepare('SELECT company_id AS companyId, status FROM payroll_runs WHERE id = ?').get(runId) as { companyId: string; status: string } | undefined
+      if (!run) throw new Error('Payroll run not found')
+
+      const role = getUserRole(database, userId)
+      if (!['admin', 'payroll_officer'].includes(role)) {
+        throw new Error('Permission denied: user cannot validate payroll')
+      }
+      if (!['draft', 'validated'].includes(run.status)) {
+        throw new Error('Only draft payroll runs can be validated')
+      }
+
+      const validation = buildPayrollValidation(database, runId)
+      const snapshot = readRunSnapshot(database, runId)
+      const validatedSnapshot: PayrollRunSnapshot = { ...snapshot, status: 'validated' }
+
+      database.db.prepare('UPDATE payroll_runs SET status = ? WHERE id = ?').run('validated', runId)
+      writeRunSnapshot(database, runId, validatedSnapshot)
+      writeAuditLog(database, run.companyId, 'payroll.validated', 'payroll_run', runId, userId, validation)
+
+      return {
+        id: runId,
+        status: 'validated',
+        blockingCount: validation.blockingCount,
+        warningCount: validation.warningCount
+      }
+    },
     approve(runId: string, userId: string) {
       const run = database.db.prepare('SELECT company_id AS companyId, status FROM payroll_runs WHERE id = ?').get(runId) as { companyId: string; status: string } | undefined
       if (!run) throw new Error('Payroll run not found')
@@ -372,7 +566,7 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
     submitForReview(runId: string, userId: string) {
       const run = database.db.prepare('SELECT company_id AS companyId, status FROM payroll_runs WHERE id = ?').get(runId) as { companyId: string; status: string } | undefined
       if (!run) throw new Error('Payroll run not found')
-      if (run.status !== 'draft') throw new Error('Only draft payroll runs can be submitted for review')
+      if (run.status !== 'validated') throw new Error('Only validated payroll runs can be submitted for review')
 
       const role = getUserRole(database, userId)
       if (role !== 'admin' && role !== 'payroll_officer') {
@@ -389,32 +583,73 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
 
       return { id: runId, status: 'in_review' as const }
     },
+    finalize(runId: string, userId: string): PayrollRunTransitionResult {
+      const run = database.db.prepare('SELECT company_id AS companyId, status FROM payroll_runs WHERE id = ?').get(runId) as { companyId: string; status: string } | undefined
+      if (!run) throw new Error('Payroll run not found')
+
+      const role = getUserRole(database, userId)
+      if (!['admin', 'approver'].includes(role)) {
+        throw new Error('Permission denied: user cannot finalize payroll')
+      }
+      if (run.status !== 'approved') {
+        throw new Error('Payroll run must be approved before finalization')
+      }
+
+      const validation = buildPayrollValidation(database, runId)
+      if (validation.blockingCount > 0) {
+        throw new Error('Payroll run has blocking exceptions and cannot be finalized')
+      }
+
+      const snapshot = readRunSnapshot(database, runId)
+      const finalizedSnapshot: PayrollRunSnapshot = { ...snapshot, status: 'finalized' }
+
+      database.db.prepare('UPDATE payroll_runs SET status = ? WHERE id = ?').run('finalized', runId)
+      writeRunSnapshot(database, runId, finalizedSnapshot)
+      writeAuditLog(database, run.companyId, 'payroll.finalized', 'payroll_run', runId, userId, validation)
+
+      return { id: runId, status: 'finalized' }
+    },
+    post(runId: string, userId: string): PayrollRunTransitionResult {
+      const run = database.db.prepare('SELECT company_id AS companyId, status FROM payroll_runs WHERE id = ?').get(runId) as { companyId: string; status: string } | undefined
+      if (!run) throw new Error('Payroll run not found')
+
+      const role = getUserRole(database, userId)
+      if (!['admin', 'approver'].includes(role)) {
+        throw new Error('Permission denied: user cannot post payroll')
+      }
+      if (run.status !== 'finalized') {
+        throw new Error('Payroll run must be finalized before posting')
+      }
+
+      const snapshot = readRunSnapshot(database, runId)
+      const postedSnapshot: PayrollRunSnapshot = { ...snapshot, status: 'posted' }
+
+      database.db.prepare('UPDATE payroll_runs SET status = ? WHERE id = ?').run('posted', runId)
+      writeRunSnapshot(database, runId, postedSnapshot)
+      writeAuditLog(database, run.companyId, 'payroll.posted', 'payroll_run', runId, userId, buildPostingSummary(database, runId))
+
+      return { id: runId, status: 'posted' }
+    },
     list(companyId: string) {
       return database.db
         .prepare('SELECT id, pay_period AS payPeriod, status, gross_pay AS grossPay, net_pay AS netPay, paye_total AS payeTotal, employee_count AS employeeCount FROM payroll_runs WHERE company_id = ? ORDER BY pay_period DESC')
         .all(companyId)
     },
     getById(runId: string) {
-      const run = database.db
-        .prepare('SELECT id, company_id AS companyId, pay_period AS payPeriod, status, gross_pay AS grossPay, net_pay AS netPay, paye_total AS payeTotal, employee_count AS employeeCount FROM payroll_runs WHERE id = ?')
-        .get(runId) as {
-        id: string
-        companyId: string
-        payPeriod: string
-        status: string
-        grossPay: number
-        netPay: number
-        payeTotal: number
-          employeeCount: number
-        }
-      const snapshot = parseJson<PayrollRunSnapshot>((database.db.prepare('SELECT snapshot_json AS snapshotJson FROM payroll_snapshots WHERE run_id = ?').get(runId) as { snapshotJson: string }).snapshotJson)
+      const run = readRunSummary(database, runId)
+      if (!run) {
+        throw new Error('Payroll run not found')
+      }
+      const snapshot = readRunSnapshot(database, runId)
       const variance = buildPayrollVariance(database, run.companyId, run.payPeriod, {
         grossPay: run.grossPay,
         netPay: run.netPay,
         payeTotal: run.payeTotal
       })
+      const validation = buildPayrollValidation(database, runId)
+      const postingSummary = buildPostingSummary(database, runId)
 
-      return { ...run, snapshot, variance }
+      return { ...run, snapshot, variance, validation, postingSummary }
     }
   }
 
