@@ -28,6 +28,8 @@ function registerHandlers() {
 
   ipcMain.handle('haqly:auth:login', (_event, email: string, password: string) => services.auth.login(email, password))
   ipcMain.handle('haqly:companies:list', () => services.companies.list())
+  ipcMain.handle('haqly:companies:get-settings', (_event, companyId: string) => services.companies.getSettings(companyId))
+  ipcMain.handle('haqly:companies:update-settings', (_event, companyId: string, payload, userId: string) => services.companies.updateSettings(companyId, payload, userId))
   ipcMain.handle('haqly:employees:list', (_event, companyId: string) => services.employees.list(companyId))
   ipcMain.handle('haqly:employees:create', (_event, companyId: string, payload, userId: string) => services.employees.create(companyId, payload, userId))
   ipcMain.handle('haqly:employees:update', (_event, companyId: string, employeeId: string, payload, userId: string) => services.employees.update(companyId, employeeId, payload, userId))

@@ -7,7 +7,9 @@ const api: HaqlyApi = {
     login: (email, password) => ipcRenderer.invoke('haqly:auth:login', email, password)
   },
   companies: {
-    list: () => ipcRenderer.invoke('haqly:companies:list')
+    list: () => ipcRenderer.invoke('haqly:companies:list'),
+    getSettings: (companyId) => ipcRenderer.invoke('haqly:companies:get-settings', companyId),
+    updateSettings: (companyId, payload, userId) => ipcRenderer.invoke('haqly:companies:update-settings', companyId, payload, userId)
   },
   employees: {
     list: (companyId) => ipcRenderer.invoke('haqly:employees:list', companyId),

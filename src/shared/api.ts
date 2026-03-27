@@ -17,6 +17,22 @@ export interface CompanyRecord {
   activeTaxPolicyId: string
 }
 
+export type EmployeeType = 'full_time' | 'contract' | 'casual' | 'intern' | 'expat'
+
+export interface CompanyPayrollSettings {
+  defaultWorkingDays: number
+  validationPolicy: 'strict' | 'balanced' | 'light'
+  approvalPolicy: 'review_then_approve' | 'approve_direct'
+  employeePensionRate: number
+  employerPensionRate: number
+  nhfEnabled: boolean
+  nhfRate: number
+  nsitfEnabled: boolean
+  nsitfRate: number
+  payeRemittanceDay: number
+  pensionRemittanceWorkingDays: number
+}
+
 export interface DashboardData {
   payrollStatus: string
   grossPay: number
@@ -86,6 +102,12 @@ export interface ComplianceData {
   exceptions: {
     missingTin: Array<{ fullName: string; employeeCode: string }>
     missingRsa: Array<{ fullName: string; employeeCode: string }>
+  }
+  settings: CompanyPayrollSettings
+  policySummary: {
+    code: string
+    name: string
+    deductionRules: string[]
   }
 }
 
@@ -171,6 +193,7 @@ export interface EmployeeRecord {
   department: string
   branch: string
   roleTitle: string
+  employeeType: EmployeeType
   hireDate: string
   status: string
   bankName?: string | null
@@ -187,6 +210,7 @@ export interface EmployeeUpdateInput {
   department: string
   branch: string
   roleTitle: string
+  employeeType: EmployeeType
   bankName: string
   accountNumber: string
   tin: string
@@ -205,6 +229,8 @@ export interface HaqlyApi {
   }
   companies: {
     list(): Promise<CompanyRecord[]> | CompanyRecord[]
+    getSettings(companyId: string): Promise<CompanyPayrollSettings> | CompanyPayrollSettings
+    updateSettings(companyId: string, payload: CompanyPayrollSettings, userId: string): Promise<CompanyPayrollSettings> | CompanyPayrollSettings
   }
   employees: {
     list(companyId: string): Promise<EmployeeRecord[]> | EmployeeRecord[]

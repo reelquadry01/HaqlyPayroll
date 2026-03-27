@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type {
   AuthSession,
   CompanyRecord,
+  CompanyPayrollSettings,
   ComplianceData,
   DashboardData,
   EmployeeCreateInput,
@@ -248,6 +249,18 @@ export function App() {
     }
   }
 
+  async function handleCompanySettingsSave(payload: CompanyPayrollSettings) {
+    if (!data || !session) return
+
+    try {
+      await window.haqlyApi.companies.updateSettings(data.company.id, payload, session.id)
+      await refreshCompanyData(data.company, selectedPayPeriod)
+      setNotice({ tone: 'success', message: 'Compliance settings saved.' })
+    } catch (actionError) {
+      setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to save compliance settings.' })
+    }
+  }
+
   async function handleLoanCreate(payload: LoanCreateInput) {
     if (!data || !session) return
 
@@ -365,7 +378,7 @@ export function App() {
         />
       ) : null}
       {activeNav === 'reports' ? <ReportsPage reports={data.reports} payrollRun={data.payrollRun} onExport={handleExport} onRevealPath={handleRevealPath} /> : null}
-      {activeNav === 'compliance' ? <CompliancePage compliance={data.compliance} /> : null}
+      {activeNav === 'compliance' ? <CompliancePage compliance={data.compliance} onSaveSettings={handleCompanySettingsSave} /> : null}
     </AppShell>
   )
 }

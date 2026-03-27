@@ -10,12 +10,12 @@ export type NavKey = 'dashboard' | 'employees' | 'structures' | 'inputs' | 'loan
 const navItems: Array<{ key: NavKey; label: string }> = [
   { key: 'dashboard', label: 'Dashboard' },
   { key: 'employees', label: 'Employees' },
-  { key: 'structures', label: 'Structures' },
+  { key: 'structures', label: 'Earnings & Deductions' },
   { key: 'inputs', label: 'Payroll Inputs' },
   { key: 'loans', label: 'Loans' },
   { key: 'payroll', label: 'Payroll' },
   { key: 'reports', label: 'Reports' },
-  { key: 'compliance', label: 'Compliance' }
+  { key: 'compliance', label: 'Compliance & Tax' }
 ]
 
 export function AppShell({

@@ -13,6 +13,7 @@ function createEmployeeDraft(employee: EmployeeRecord): EmployeeUpdateInput {
     department: employee.department,
     branch: employee.branch,
     roleTitle: employee.roleTitle,
+    employeeType: employee.employeeType,
     bankName: employee.bankName ?? '',
     accountNumber: employee.accountNumber ?? '',
     tin: employee.tin ?? '',
@@ -28,6 +29,7 @@ function createEmployeeCreateDraft(): EmployeeCreateInput {
     department: '',
     branch: '',
     roleTitle: '',
+    employeeType: 'full_time',
     hireDate: '',
     bankName: '',
     accountNumber: '',
@@ -195,6 +197,16 @@ export function EmployeesPage({
             <input aria-label="Role Title" value={draft.roleTitle} onChange={(event) => setDraft({ ...draft, roleTitle: event.target.value })} />
           </label>
           <label>
+            Employee Type
+            <select aria-label="Employee Type" value={draft.employeeType} onChange={(event) => setDraft({ ...draft, employeeType: event.target.value as EmployeeCreateInput['employeeType'] })}>
+              <option value="full_time">Full-time</option>
+              <option value="contract">Contract</option>
+              <option value="casual">Casual</option>
+              <option value="intern">Intern</option>
+              <option value="expat">Expat</option>
+            </select>
+          </label>
+          <label>
             Bank Name
             <input aria-label="Bank Name" value={draft.bankName} onChange={(event) => setDraft({ ...draft, bankName: event.target.value })} />
           </label>
@@ -318,6 +330,16 @@ export function EmployeesPage({
               <label>
                 Role Title
                 <input aria-label="New Role Title" value={createDraft.roleTitle} onChange={(event) => setCreateDraft({ ...createDraft, roleTitle: event.target.value })} />
+              </label>
+              <label>
+                Employee Type
+                <select aria-label="New Employee Type" value={createDraft.employeeType} onChange={(event) => setCreateDraft({ ...createDraft, employeeType: event.target.value as EmployeeCreateInput['employeeType'] })}>
+                  <option value="full_time">Full-time</option>
+                  <option value="contract">Contract</option>
+                  <option value="casual">Casual</option>
+                  <option value="intern">Intern</option>
+                  <option value="expat">Expat</option>
+                </select>
               </label>
               <label>
                 Hire Date

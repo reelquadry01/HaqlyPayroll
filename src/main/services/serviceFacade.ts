@@ -7,6 +7,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import * as XLSX from 'xlsx'
 
 import type {
+  CompanyPayrollSettings,
   EmployeeCreateInput,
   EmployeePayAssignmentUpdateInput,
   EmployeeUpdateInput,
@@ -113,6 +114,7 @@ function mapEmployee(row: Record<string, unknown>) {
     department: String(row.department),
     branch: String(row.branch),
     roleTitle: String(row.roleTitle),
+    employeeType: String(row.employeeType),
     hireDate: String(row.hireDate),
     status: String(row.status),
     bankName: typeof row.bankName === 'string' ? row.bankName : null,
@@ -128,9 +130,40 @@ function mapEmployee(row: Record<string, unknown>) {
 function readEmployeeById(context: DatabaseContext, employeeId: string) {
   return mapEmployee(
     context.db
-      .prepare('SELECT id, employee_code AS employeeCode, full_name AS fullName, department, branch, role_title AS roleTitle, hire_date AS hireDate, status, bank_name AS bankName, account_number AS accountNumber, tin, rsa_number AS rsaNumber, pfa_name AS pfaName, nhf_flag AS nhfFlag FROM employees WHERE id = ?')
+      .prepare('SELECT id, employee_code AS employeeCode, full_name AS fullName, department, branch, role_title AS roleTitle, employee_type AS employeeType, hire_date AS hireDate, status, bank_name AS bankName, account_number AS accountNumber, tin, rsa_number AS rsaNumber, pfa_name AS pfaName, nhf_flag AS nhfFlag FROM employees WHERE id = ?')
       .get(employeeId) as Record<string, unknown>
   )
+}
+
+function readCompanySettings(context: DatabaseContext, companyId: string): CompanyPayrollSettings {
+  const row = context.db
+    .prepare(
+      `SELECT default_working_days AS defaultWorkingDays, validation_policy AS validationPolicy, approval_policy AS approvalPolicy,
+              employee_pension_rate AS employeePensionRate, employer_pension_rate AS employerPensionRate, nhf_enabled AS nhfEnabled,
+              nhf_rate AS nhfRate, nsitf_enabled AS nsitfEnabled, nsitf_rate AS nsitfRate, paye_remittance_day AS payeRemittanceDay,
+              pension_remittance_working_days AS pensionRemittanceWorkingDays
+       FROM company_payroll_settings
+       WHERE company_id = ?`
+    )
+    .get(companyId) as Record<string, unknown> | undefined
+
+  if (!row) {
+    throw new Error(`Payroll settings not found for company ${companyId}`)
+  }
+
+  return {
+    defaultWorkingDays: Number(row.defaultWorkingDays),
+    validationPolicy: String(row.validationPolicy) as CompanyPayrollSettings['validationPolicy'],
+    approvalPolicy: String(row.approvalPolicy) as CompanyPayrollSettings['approvalPolicy'],
+    employeePensionRate: Number(row.employeePensionRate),
+    employerPensionRate: Number(row.employerPensionRate),
+    nhfEnabled: Boolean(row.nhfEnabled),
+    nhfRate: Number(row.nhfRate),
+    nsitfEnabled: Boolean(row.nsitfEnabled),
+    nsitfRate: Number(row.nsitfRate),
+    payeRemittanceDay: Number(row.payeRemittanceDay),
+    pensionRemittanceWorkingDays: Number(row.pensionRemittanceWorkingDays)
+  }
 }
 
 function readEmployeePayAssignments(context: DatabaseContext, employeeId: string) {
@@ -204,6 +237,41 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
         payDate: number
         activeTaxPolicyId: string
       }>
+    },
+    getSettings(companyId: string) {
+      return readCompanySettings(database, companyId)
+    },
+    updateSettings(companyId: string, payload: CompanyPayrollSettings, userId: string) {
+      const role = getUserRole(database, userId)
+      if (!['admin', 'payroll_officer', 'approver'].includes(role)) {
+        throw new Error('Permission denied: user cannot update company payroll settings')
+      }
+
+      database.db
+        .prepare(
+          `UPDATE company_payroll_settings
+           SET default_working_days = ?, validation_policy = ?, approval_policy = ?, employee_pension_rate = ?, employer_pension_rate = ?,
+               nhf_enabled = ?, nhf_rate = ?, nsitf_enabled = ?, nsitf_rate = ?, paye_remittance_day = ?, pension_remittance_working_days = ?
+           WHERE company_id = ?`
+        )
+        .run(
+          payload.defaultWorkingDays,
+          payload.validationPolicy,
+          payload.approvalPolicy,
+          payload.employeePensionRate,
+          payload.employerPensionRate,
+          payload.nhfEnabled ? 1 : 0,
+          payload.nhfRate,
+          payload.nsitfEnabled ? 1 : 0,
+          payload.nsitfRate,
+          payload.payeRemittanceDay,
+          payload.pensionRemittanceWorkingDays,
+          companyId
+        )
+
+      writeAuditLog(database, companyId, 'company_payroll_settings.updated', 'company', companyId, userId, payload)
+
+      return readCompanySettings(database, companyId)
     }
   }
 
@@ -400,7 +468,7 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
     employees: {
       list(companyId: string) {
         return database.db
-          .prepare('SELECT id, employee_code AS employeeCode, full_name AS fullName, department, branch, role_title AS roleTitle, hire_date AS hireDate, status, bank_name AS bankName, account_number AS accountNumber, tin, rsa_number AS rsaNumber, pfa_name AS pfaName, nhf_flag AS nhfFlag FROM employees WHERE company_id = ? ORDER BY full_name ASC')
+          .prepare('SELECT id, employee_code AS employeeCode, full_name AS fullName, department, branch, role_title AS roleTitle, employee_type AS employeeType, hire_date AS hireDate, status, bank_name AS bankName, account_number AS accountNumber, tin, rsa_number AS rsaNumber, pfa_name AS pfaName, nhf_flag AS nhfFlag FROM employees WHERE company_id = ? ORDER BY full_name ASC')
           .all(companyId)
           .map((row) => {
             const employee = mapEmployee(row as Record<string, unknown>)
@@ -420,8 +488,8 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
         database.db
           .prepare(
             `INSERT INTO employees
-             (id, company_id, employee_code, full_name, department, branch, role_title, hire_date, status, bank_name, account_number, tin, rsa_number, pfa_name, nhf_flag)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             (id, company_id, employee_code, full_name, department, branch, role_title, employee_type, hire_date, status, bank_name, account_number, tin, rsa_number, pfa_name, nhf_flag)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .run(
             employeeId,
@@ -431,6 +499,7 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
             payload.department.trim(),
             payload.branch.trim(),
             payload.roleTitle.trim(),
+            payload.employeeType,
             payload.hireDate.trim(),
             payload.status.trim(),
             payload.bankName.trim() || null,
@@ -463,12 +532,13 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
         }
 
         database.db
-          .prepare('UPDATE employees SET full_name = ?, department = ?, branch = ?, role_title = ?, bank_name = ?, account_number = ?, tin = ?, rsa_number = ?, status = ? WHERE id = ? AND company_id = ?')
+          .prepare('UPDATE employees SET full_name = ?, department = ?, branch = ?, role_title = ?, employee_type = ?, bank_name = ?, account_number = ?, tin = ?, rsa_number = ?, status = ? WHERE id = ? AND company_id = ?')
           .run(
             payload.fullName.trim(),
             payload.department.trim(),
             payload.branch.trim(),
             payload.roleTitle.trim(),
+            payload.employeeType,
             payload.bankName.trim(),
             payload.accountNumber.trim(),
             payload.tin.trim() || null,
@@ -728,6 +798,7 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
       get(companyId: string, payPeriod: string) {
         const run = (database.db.prepare('SELECT id FROM payroll_runs WHERE company_id = ? AND pay_period = ?').get(companyId, payPeriod) as { id: string } | undefined) ?? payrollRuns.generate(companyId, payPeriod)
         const detail = payrollRuns.getById(run.id)
+        const policy = readActivePolicy(database, companyId)
         return {
           schedules: [
             buildPayeSchedule({ amount: detail.payeTotal, paymentDate: `${payPeriod}-30`, today: `${payPeriod}-30`, reference: payPeriod }),
@@ -736,6 +807,12 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
           exceptions: {
             missingTin: database.db.prepare('SELECT full_name AS fullName, employee_code AS employeeCode FROM employees WHERE company_id = ? AND tin IS NULL').all(companyId),
             missingRsa: database.db.prepare('SELECT full_name AS fullName, employee_code AS employeeCode FROM employees WHERE company_id = ? AND rsa_number IS NULL').all(companyId)
+          },
+          settings: readCompanySettings(database, companyId),
+          policySummary: {
+            code: policy.code,
+            name: policy.name,
+            deductionRules: policy.deductionRules.map((rule) => rule.name)
           }
         }
       }

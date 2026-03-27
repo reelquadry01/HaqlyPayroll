@@ -172,6 +172,7 @@ describe('service facade integration', () => {
         department: 'Platform Engineering',
         branch: 'Lekki Annex',
         roleTitle: 'Senior Engineering Analyst',
+        employeeType: 'full_time',
         bankName: 'First Bank',
         accountNumber: '9988776655',
         tin: 'TIN-CHIDI-NEW',
@@ -209,6 +210,7 @@ describe('service facade integration', () => {
         department: 'Finance',
         branch: 'Kano',
         roleTitle: 'Payroll Analyst',
+        employeeType: 'expat',
         hireDate: '2026-03-01',
         status: 'active',
         bankName: 'Zenith Bank',
@@ -223,14 +225,64 @@ describe('service facade integration', () => {
 
     expect(created.employeeCode).toBe('KAN-1001')
     expect(created.fullName).toBe('Ngozi Danjuma')
+    expect((created as any).employeeType).toBe('expat')
     expect(employees).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           employeeCode: 'KAN-1001',
           fullName: 'Ngozi Danjuma',
-          department: 'Finance'
+          department: 'Finance',
+          employeeType: 'expat'
         })
       ])
+    )
+  })
+
+  it('updates company payroll settings and exposes them through compliance data', () => {
+    const database = createDatabaseContext({ filePath: ':memory:' })
+    bootstrapDatabase(database)
+    seedDemoData(database)
+
+    const services = createServiceFacade({
+      database,
+      exportDir
+    })
+
+    const updated = (services.companies as any).updateSettings(
+      'company-demo',
+      {
+        defaultWorkingDays: 20,
+        validationPolicy: 'balanced',
+        approvalPolicy: 'review_then_approve',
+        employeePensionRate: 9,
+        employerPensionRate: 11,
+        nhfEnabled: true,
+        nhfRate: 2.5,
+        nsitfEnabled: true,
+        nsitfRate: 1.2,
+        payeRemittanceDay: 12,
+        pensionRemittanceWorkingDays: 5
+      },
+      'user-admin'
+    )
+
+    const compliance = services.compliance.get('company-demo', '2026-04') as any
+
+    expect(updated.employeePensionRate).toBe(9)
+    expect(updated.payeRemittanceDay).toBe(12)
+    expect(compliance.settings).toEqual(
+      expect.objectContaining({
+        employeePensionRate: 9,
+        employerPensionRate: 11,
+        payeRemittanceDay: 12,
+        pensionRemittanceWorkingDays: 5
+      })
+    )
+    expect(compliance.policySummary).toEqual(
+      expect.objectContaining({
+        code: 'NG-2026',
+        deductionRules: expect.arrayContaining(['Employee Pension'])
+      })
     )
   })
 

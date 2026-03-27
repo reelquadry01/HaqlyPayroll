@@ -86,7 +86,23 @@ function createFakeApi(
       login: vi.fn(() => ({ id: `user-${role}`, email: `${role}@haqly.local`, role, displayName: role === 'approver' ? 'Kemi Adebayo' : 'Tunde Kolawole' }))
     },
     companies: {
-      list: vi.fn(() => [{ id: 'company-demo', name: 'HAQLY Demo Industries', taxState: 'Lagos', payrollFrequency: 12, currency: 'NGN', payDate: 30, activeTaxPolicyId: 'policy-2026-default' }])
+      list: vi.fn(() => [{ id: 'company-demo', name: 'HAQLY Demo Industries', taxState: 'Lagos', payrollFrequency: 12, currency: 'NGN', payDate: 30, activeTaxPolicyId: 'policy-2026-default' }]),
+      ...({
+        getSettings: vi.fn(() => ({
+          defaultWorkingDays: 22,
+          validationPolicy: 'strict',
+          approvalPolicy: 'review_then_approve',
+          employeePensionRate: 8,
+          employerPensionRate: 10,
+          nhfEnabled: true,
+          nhfRate: 2.5,
+          nsitfEnabled: true,
+          nsitfRate: 1,
+          payeRemittanceDay: 10,
+          pensionRemittanceWorkingDays: 7
+        })),
+        updateSettings: vi.fn((_companyId, payload) => payload)
+      } as any)
     },
     employees: {
       list: vi.fn(() => [
@@ -97,6 +113,7 @@ function createFakeApi(
           department: 'Engineering',
           branch: 'Lagos HQ',
           roleTitle: 'Engineering Analyst',
+          employeeType: 'full_time',
           tin: 'TIN-CHIDI',
           rsaNumber: 'RSA-001',
           payAssignments: [
@@ -111,6 +128,7 @@ function createFakeApi(
           department: 'Operations',
           branch: 'Abuja',
           roleTitle: 'Operations Officer',
+          employeeType: 'contract',
           tin: 'TIN-AISHA',
           rsaNumber: 'RSA-002',
           payAssignments: [
@@ -125,6 +143,7 @@ function createFakeApi(
           department: 'Legal',
           branch: 'Lagos HQ',
           roleTitle: 'Legal Counsel',
+          employeeType: 'full_time',
           tin: null,
           rsaNumber: 'RSA-003',
           payAssignments: [
@@ -139,6 +158,7 @@ function createFakeApi(
         department: update.department,
         branch: update.branch,
         roleTitle: update.roleTitle,
+        employeeType: (update as any).employeeType,
         bankName: update.bankName,
         accountNumber: update.accountNumber,
         tin: update.tin,
@@ -162,6 +182,7 @@ function createFakeApi(
         department: payload.department,
         branch: payload.branch,
         roleTitle: payload.roleTitle,
+        employeeType: (payload as any).employeeType,
         bankName: payload.bankName,
         accountNumber: payload.accountNumber,
         tin: payload.tin,
@@ -231,7 +252,25 @@ function createFakeApi(
     compliance: {
       get: vi.fn(() => ({
         schedules: [{ type: 'paye', paymentDate: '2026-04-30', dueDate: '2026-05-10', status: 'due_soon', amount: 614_650, reference: '2026-04' }],
-        exceptions: { missingTin: [{ fullName: 'Femi Adebayo', employeeCode: 'LAG-1120' }], missingRsa: [] }
+        exceptions: { missingTin: [{ fullName: 'Femi Adebayo', employeeCode: 'LAG-1120' }], missingRsa: [] },
+        settings: {
+          defaultWorkingDays: 22,
+          validationPolicy: 'strict',
+          approvalPolicy: 'review_then_approve',
+          employeePensionRate: 8,
+          employerPensionRate: 10,
+          nhfEnabled: true,
+          nhfRate: 2.5,
+          nsitfEnabled: true,
+          nsitfRate: 1,
+          payeRemittanceDay: 10,
+          pensionRemittanceWorkingDays: 7
+        },
+        policySummary: {
+          code: 'NG-2026',
+          name: 'Nigeria 2026 Default',
+          deductionRules: ['Employee Pension', 'National Housing Fund']
+        }
       }))
     },
     reports: {
@@ -318,6 +357,19 @@ describe('App', () => {
 
     expect(screen.getByRole('heading', { name: /haqly payroll/i })).toBeInTheDocument()
     expect(screen.queryByText(/sovereign ledger/i)).not.toBeInTheDocument()
+  })
+
+  it('shows the aligned setup navigation labels', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+    expect(screen.getByRole('button', { name: /earnings & deductions/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /compliance & tax/i })).toBeInTheDocument()
   })
 
   it('shows payroll review drill-down and approval controls for approvers', async () => {
@@ -493,6 +545,7 @@ describe('App', () => {
     await user.type(screen.getByLabelText(/new hire date/i), '2026-03-01')
     await user.type(screen.getByLabelText(/new bank name/i), 'Zenith Bank')
     await user.type(screen.getByLabelText(/new account number/i), '1029384756')
+    await user.selectOptions(screen.getByLabelText(/new employee type/i), 'expat')
     await user.type(screen.getByLabelText(/new tin/i), 'TIN-NGOZI')
     await user.type(screen.getByLabelText(/new rsa number/i), 'RSA-1001')
     await user.click(screen.getByRole('button', { name: /create employee/i }))
@@ -502,7 +555,8 @@ describe('App', () => {
       expect.objectContaining({
         employeeCode: 'KAN-1001',
         fullName: 'Ngozi Danjuma',
-        department: 'Finance'
+        department: 'Finance',
+        employeeType: 'expat'
       }),
       'user-approver'
     )
@@ -587,7 +641,7 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: /sign in/i }))
 
     await screen.findByText(/haqly demo industries/i)
-    await user.click(screen.getByRole('button', { name: /^structures$/i }))
+    await user.click(screen.getByRole('button', { name: /earnings & deductions/i }))
     await user.click(screen.getByRole('button', { name: /edit performance bonus/i }))
     await user.clear(screen.getByLabelText(/component name/i))
     await user.type(screen.getByLabelText(/component name/i), 'Quarterly Performance Bonus')
@@ -618,7 +672,7 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: /sign in/i }))
 
     await screen.findByText(/haqly demo industries/i)
-    await user.click(screen.getByRole('button', { name: /^structures$/i }))
+    await user.click(screen.getByRole('button', { name: /earnings & deductions/i }))
     await user.click(screen.getByRole('button', { name: /new component/i }))
     await user.type(screen.getByLabelText(/new component code/i), 'SHIFT')
     await user.type(screen.getByLabelText(/new component name/i), 'Shift Allowance')
@@ -638,6 +692,35 @@ describe('App', () => {
       'user-approver'
     )
     expect(await screen.findByText(/salary component created/i)).toBeInTheDocument()
+  })
+
+  it('lets payroll operators save company payroll settings from compliance & tax', async () => {
+    const user = userEvent.setup()
+    const api = createFakeApi('approver')
+    window.haqlyApi = api
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+    await user.click(screen.getByRole('button', { name: /compliance & tax/i }))
+    await user.clear(screen.getByLabelText(/employee pension rate/i))
+    await user.type(screen.getByLabelText(/employee pension rate/i), '9')
+    await user.clear(screen.getByLabelText(/paye remittance day/i))
+    await user.type(screen.getByLabelText(/paye remittance day/i), '12')
+    await user.click(screen.getByRole('button', { name: /save compliance settings/i }))
+
+    expect((api.companies as any).updateSettings).toHaveBeenCalledWith(
+      'company-demo',
+      expect.objectContaining({
+        employeePensionRate: 9,
+        payeRemittanceDay: 12
+      }),
+      'user-approver'
+    )
+    expect(await screen.findByText(/compliance settings saved/i)).toBeInTheDocument()
   })
 
   it('lets payroll operators create a staff loan from the loans workspace', async () => {

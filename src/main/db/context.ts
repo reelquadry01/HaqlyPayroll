@@ -17,6 +17,56 @@ export function createDatabaseContext(options: { filePath: string }): DatabaseCo
   }
 }
 
+function columnExists(context: DatabaseContext, tableName: string, columnName: string): boolean {
+  return (context.db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>).some((column) => column.name === columnName)
+}
+
+function ensureColumn(context: DatabaseContext, tableName: string, columnName: string, definition: string): void {
+  if (!columnExists(context, tableName, columnName)) {
+    context.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition};`)
+  }
+}
+
+function defaultCompanyPayrollSettings() {
+  return {
+    defaultWorkingDays: 22,
+    validationPolicy: 'strict',
+    approvalPolicy: 'review_then_approve',
+    employeePensionRate: 8,
+    employerPensionRate: 10,
+    nhfEnabled: true,
+    nhfRate: 2.5,
+    nsitfEnabled: true,
+    nsitfRate: 1,
+    payeRemittanceDay: 10,
+    pensionRemittanceWorkingDays: 7
+  } as const
+}
+
+function ensureCompanySettings(context: DatabaseContext, companyId: string): void {
+  const defaults = defaultCompanyPayrollSettings()
+  context.db
+    .prepare(
+      `INSERT OR IGNORE INTO company_payroll_settings
+       (company_id, default_working_days, validation_policy, approval_policy, employee_pension_rate, employer_pension_rate, nhf_enabled, nhf_rate, nsitf_enabled, nsitf_rate, paye_remittance_day, pension_remittance_working_days)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      companyId,
+      defaults.defaultWorkingDays,
+      defaults.validationPolicy,
+      defaults.approvalPolicy,
+      defaults.employeePensionRate,
+      defaults.employerPensionRate,
+      defaults.nhfEnabled ? 1 : 0,
+      defaults.nhfRate,
+      defaults.nsitfEnabled ? 1 : 0,
+      defaults.nsitfRate,
+      defaults.payeRemittanceDay,
+      defaults.pensionRemittanceWorkingDays
+    )
+}
+
 export function bootstrapDatabase(context: DatabaseContext): void {
   context.db.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -190,7 +240,24 @@ export function bootstrapDatabase(context: DatabaseContext): void {
       status TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS company_payroll_settings (
+      company_id TEXT PRIMARY KEY,
+      default_working_days INTEGER NOT NULL,
+      validation_policy TEXT NOT NULL,
+      approval_policy TEXT NOT NULL,
+      employee_pension_rate REAL NOT NULL,
+      employer_pension_rate REAL NOT NULL,
+      nhf_enabled INTEGER NOT NULL,
+      nhf_rate REAL NOT NULL,
+      nsitf_enabled INTEGER NOT NULL,
+      nsitf_rate REAL NOT NULL,
+      paye_remittance_day INTEGER NOT NULL,
+      pension_remittance_working_days INTEGER NOT NULL
+    );
   `)
+
+  ensureColumn(context, 'employees', 'employee_type', "TEXT NOT NULL DEFAULT 'full_time'")
+  context.db.prepare("UPDATE employees SET employee_type = 'full_time' WHERE employee_type IS NULL OR employee_type = ''").run()
 }
 
 function insertTaxPolicy(context: DatabaseContext, companyId: string): string {
@@ -264,7 +331,14 @@ function insertTaxPolicy(context: DatabaseContext, companyId: string): string {
 
 export function seedDemoData(context: DatabaseContext): void {
   const hasCompany = context.db.prepare('SELECT id FROM companies LIMIT 1').get()
-  if (hasCompany) return
+  if (hasCompany) {
+    const existingCompanies = context.db.prepare('SELECT id FROM companies').all() as Array<{ id: string }>
+    for (const company of existingCompanies) {
+      ensureCompanySettings(context, company.id)
+    }
+    context.db.prepare("UPDATE employees SET employee_type = 'full_time' WHERE employee_type IS NULL OR employee_type = ''").run()
+    return
+  }
 
   const companyConfigs = [
     {
@@ -288,6 +362,7 @@ export function seedDemoData(context: DatabaseContext): void {
   for (const company of companyConfigs) {
     const policyId = insertTaxPolicy(context, company.id)
     insertCompany.run(company.id, company.name, company.taxState, 12, 'NGN', company.payDate, policyId)
+    ensureCompanySettings(context, company.id)
   }
 
   const companyId = 'company-demo'
@@ -303,12 +378,12 @@ export function seedDemoData(context: DatabaseContext): void {
   }
 
   const insertEmployee = context.db.prepare(
-    'INSERT INTO employees (id, company_id, employee_code, full_name, department, branch, role_title, hire_date, status, bank_name, account_number, tin, rsa_number, pfa_name, nhf_flag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO employees (id, company_id, employee_code, full_name, department, branch, role_title, employee_type, hire_date, status, bank_name, account_number, tin, rsa_number, pfa_name, nhf_flag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   )
   for (const employee of [
-    ['emp-chidi', companyId, 'LAG-4492', 'Chidi Okoro', 'Engineering', 'Lagos HQ', 'Engineering Analyst', '2024-02-12', 'active', 'Access Bank', '0123456789', 'TIN-CHIDI', 'RSA-001', 'Leadway PFA', 1],
-    ['emp-aisha', companyId, 'ABJ-2101', 'Aisha Abubakar', 'Operations', 'Abuja', 'Operations Officer', '2023-09-03', 'active', 'GTBank', '1234567890', 'TIN-AISHA', 'RSA-002', 'Stanbic IBTC PFA', 1],
-    ['emp-femi', companyId, 'LAG-1120', 'Femi Adebayo', 'Legal', 'Lagos HQ', 'Legal Counsel', '2022-04-18', 'active', 'UBA', '2222333344', null, 'RSA-003', 'Premium PFA', 0]
+    ['emp-chidi', companyId, 'LAG-4492', 'Chidi Okoro', 'Engineering', 'Lagos HQ', 'Engineering Analyst', 'full_time', '2024-02-12', 'active', 'Access Bank', '0123456789', 'TIN-CHIDI', 'RSA-001', 'Leadway PFA', 1],
+    ['emp-aisha', companyId, 'ABJ-2101', 'Aisha Abubakar', 'Operations', 'Abuja', 'Operations Officer', 'contract', '2023-09-03', 'active', 'GTBank', '1234567890', 'TIN-AISHA', 'RSA-002', 'Stanbic IBTC PFA', 1],
+    ['emp-femi', companyId, 'LAG-1120', 'Femi Adebayo', 'Legal', 'Lagos HQ', 'Legal Counsel', 'full_time', '2022-04-18', 'active', 'UBA', '2222333344', null, 'RSA-003', 'Premium PFA', 0]
   ] as const) {
     insertEmployee.run(...employee)
   }
