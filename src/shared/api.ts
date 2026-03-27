@@ -106,6 +106,19 @@ export interface PayrollInputSaveInput {
   sourcePeriod?: string
 }
 
+export interface PayrollInputImportInput {
+  payPeriod: string
+  sourceFile: string
+  csvText: string
+}
+
+export interface PayrollInputImportResult {
+  batchId: string
+  importedCount: number
+  invalidCount: number
+  status: string
+}
+
 export interface EmployeePayAssignment {
   componentCode: string
   componentName: string
@@ -195,6 +208,7 @@ export interface HaqlyApi {
   inputs: {
     list(companyId: string, payPeriod: string): Promise<InputCenterData> | InputCenterData
     save(companyId: string, payload: PayrollInputSaveInput, userId: string): Promise<PayrollInputLine> | PayrollInputLine
+    importCsv(companyId: string, payload: PayrollInputImportInput, userId: string): Promise<PayrollInputImportResult> | PayrollInputImportResult
   }
   payrollRuns: {
     generate(companyId: string, payPeriod: string): Promise<PayrollRunSummary> | PayrollRunSummary

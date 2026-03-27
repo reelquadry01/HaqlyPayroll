@@ -359,4 +359,55 @@ describe('service facade integration', () => {
 
     expect(updated.status).toBe('paused')
   })
+
+  it('imports a payroll input CSV batch and exposes the imported lines with a tracked batch', () => {
+    const database = createDatabaseContext({ filePath: ':memory:' })
+    bootstrapDatabase(database)
+    seedDemoData(database)
+
+    const services = createServiceFacade({
+      database,
+      exportDir
+    })
+
+    const imported = services.inputs.importCsv(
+      'company-demo',
+      {
+        payPeriod: '2026-04',
+        sourceFile: 'bonus-template.csv',
+        csvText: [
+          'employeeCode,componentCode,amount,sourcePeriod',
+          'ABJ-2101,BONUS,45000,2026-04',
+          'LAG-4492,OVERTIME,25000,'
+        ].join('\n')
+      },
+      'user-payroll'
+    )
+
+    const inputs = services.inputs.list('company-demo', '2026-04')
+
+    expect(imported.importedCount).toBe(2)
+    expect(inputs.batches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceFile: 'bonus-template.csv',
+          status: 'validated'
+        })
+      ])
+    )
+    expect(inputs.lines).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          employeeId: 'emp-aisha',
+          componentCode: 'BONUS',
+          amount: 45_000
+        }),
+        expect.objectContaining({
+          employeeId: 'emp-chidi',
+          componentCode: 'OVERTIME',
+          amount: 25_000
+        })
+      ])
+    )
+  })
 })

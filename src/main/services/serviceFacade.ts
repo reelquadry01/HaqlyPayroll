@@ -6,7 +6,15 @@ import { compareSync } from 'bcryptjs'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import * as XLSX from 'xlsx'
 
-import type { EmployeePayAssignmentUpdateInput, EmployeeUpdateInput, LoanCreateInput, LoanStatus, PayComponentUpdateInput, PayrollInputSaveInput } from '@shared/api'
+import type {
+  EmployeePayAssignmentUpdateInput,
+  EmployeeUpdateInput,
+  LoanCreateInput,
+  LoanStatus,
+  PayComponentUpdateInput,
+  PayrollInputImportInput,
+  PayrollInputSaveInput
+} from '@shared/api'
 import { formatNaira, roundCurrency } from '@shared/money'
 import type {
   EmployeeProfile,
@@ -36,6 +44,26 @@ function parseJson<T>(value: string): T {
 
 function formatPdfCurrency(value: number): string {
   return formatNaira(value).replace('₦', 'NGN ')
+}
+
+function parseCsvRows(csvText: string): Array<Record<string, string>> {
+  const [headerLine, ...lines] = csvText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  if (!headerLine) {
+    return []
+  }
+
+  const headers = headerLine.split(',').map((header) => header.trim())
+  return lines.map((line) => {
+    const values = line.split(',').map((value) => value.trim())
+    return headers.reduce<Record<string, string>>((row, header, index) => {
+      row[header] = values[index] ?? ''
+      return row
+    }, {})
+  })
 }
 
 function buildPayrollVariance(context: DatabaseContext, companyId: string, payPeriod: string, totals: {
@@ -526,6 +554,72 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
           sourcePeriod: payload.sourcePeriod?.trim() || undefined,
           sourceFile: 'manual-entry',
           validationStatus: 'valid' as const
+        }
+      },
+      importCsv(companyId: string, payload: PayrollInputImportInput, userId: string) {
+        const role = getUserRole(database, userId)
+        if (!['admin', 'payroll_officer', 'approver'].includes(role)) {
+          throw new Error('Permission denied: user cannot import payroll inputs')
+        }
+
+        const batchId = randomUUID()
+        const rows = parseCsvRows(payload.csvText)
+        const employeeLookup = new Map(
+          (database.db.prepare('SELECT id, employee_code AS employeeCode FROM employees WHERE company_id = ?').all(companyId) as Array<{ id: string; employeeCode: string }>)
+            .map((employee) => [employee.employeeCode, employee.id] as const)
+        )
+        const componentLookup = new Set(
+          (database.db.prepare('SELECT code FROM pay_components WHERE company_id = ?').all(companyId) as Array<{ code: string }>).map((component) => component.code)
+        )
+
+        let importedCount = 0
+        let invalidCount = 0
+
+        for (const row of rows) {
+          const employeeId = employeeLookup.get(row.employeeCode)
+          const amount = Number(row.amount)
+          const componentCode = row.componentCode
+
+          if (!employeeId || !componentLookup.has(componentCode) || Number.isNaN(amount)) {
+            invalidCount += 1
+            continue
+          }
+
+          database.db
+            .prepare('INSERT INTO payroll_inputs (id, company_id, employee_id, pay_period, component_code, amount, source_period, source_file, import_batch_id, validation_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            .run(
+              randomUUID(),
+              companyId,
+              employeeId,
+              payload.payPeriod,
+              componentCode,
+              amount,
+              row.sourcePeriod || null,
+              payload.sourceFile.trim(),
+              batchId,
+              'valid'
+            )
+
+          importedCount += 1
+        }
+
+        const status = invalidCount > 0 ? 'needs_review' : 'validated'
+        database.db
+          .prepare('INSERT INTO import_batches (id, company_id, source_file, status, created_at) VALUES (?, ?, ?, ?, ?)')
+          .run(batchId, companyId, payload.sourceFile.trim(), status, new Date().toISOString())
+
+        writeAuditLog(database, companyId, 'payroll_input.imported', 'import_batch', batchId, userId, {
+          sourceFile: payload.sourceFile,
+          payPeriod: payload.payPeriod,
+          importedCount,
+          invalidCount
+        })
+
+        return {
+          batchId,
+          importedCount,
+          invalidCount,
+          status
         }
       }
     },

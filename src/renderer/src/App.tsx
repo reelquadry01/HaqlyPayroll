@@ -13,6 +13,7 @@ import type {
   LoanRecord,
   LoanStatus,
   PayComponentUpdateInput,
+  PayrollInputImportInput,
   PayrollInputSaveInput,
   PayrollRunDetail,
   ReportData,
@@ -301,6 +302,18 @@ export function App() {
     }
   }
 
+  async function handleInputImport(payload: PayrollInputImportInput) {
+    if (!data || !session) return
+
+    try {
+      await window.haqlyApi.inputs.importCsv(data.company.id, payload, session.id)
+      await refreshCompanyData(data.company, selectedPayPeriod)
+      setNotice({ tone: 'success', message: 'Import batch saved.' })
+    } catch (actionError) {
+      setNotice({ tone: 'error', message: actionError instanceof Error ? actionError.message : 'Unable to import payroll batch.' })
+    }
+  }
+
   async function handleStructureSave(componentCode: string, payload: PayComponentUpdateInput) {
     if (!data || !session) return
 
@@ -418,7 +431,7 @@ export function App() {
         {activeNav === 'dashboard' ? <DashboardPage data={data.dashboard} /> : null}
         {activeNav === 'employees' ? <EmployeesPage employees={data.employees} onSave={handleEmployeeUpdate} onSaveCompensation={handleEmployeeCompensationSave} /> : null}
         {activeNav === 'structures' ? <StructuresPage structures={data.structures} onSave={handleStructureSave} /> : null}
-        {activeNav === 'inputs' ? <InputsPage payPeriod={selectedPayPeriod} inputs={data.inputs} employees={data.employees} components={data.structures.components} onSave={handleInputSave} /> : null}
+        {activeNav === 'inputs' ? <InputsPage payPeriod={selectedPayPeriod} inputs={data.inputs} employees={data.employees} components={data.structures.components} onSave={handleInputSave} onImport={handleInputImport} /> : null}
         {activeNav === 'loans' ? <LoansPage loans={data.loans} employees={data.employees} onCreate={handleLoanCreate} onUpdateStatus={handleLoanStatusUpdate} /> : null}
         {activeNav === 'payroll' ? (
           <PayrollPage
@@ -936,21 +949,30 @@ function InputsPage({
   inputs,
   employees,
   components,
-  onSave
+  onSave,
+  onImport
 }: {
   payPeriod: string
   inputs: InputCenterData
   employees: EmployeeRecord[]
   components: StructureData['components']
   onSave: (payload: PayrollInputSaveInput) => Promise<void>
+  onImport: (payload: PayrollInputImportInput) => Promise<void>
 }) {
   const manualComponents = components.filter((component) => !component.recurring || component.kind === 'deduction')
   const [draft, setDraft] = useState<PayrollInputSaveInput>(() => createInputDraft(payPeriod, employees, components))
   const [saving, setSaving] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [batchDraft, setBatchDraft] = useState<PayrollInputImportInput>({
+    payPeriod,
+    sourceFile: 'bonus-template.csv',
+    csvText: 'employeeCode,componentCode,amount,sourcePeriod'
+  })
   const totalInputValue = inputs.lines.reduce((sum, line) => sum + Number(line.amount), 0)
 
   useEffect(() => {
     setDraft(createInputDraft(payPeriod, employees, components))
+    setBatchDraft((current) => ({ ...current, payPeriod }))
   }, [components, employees, payPeriod])
 
   async function handleSubmit() {
@@ -963,6 +985,15 @@ function InputsPage({
       setDraft(createInputDraft(payPeriod, employees, components, draft))
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleImport() {
+    setImporting(true)
+    try {
+      await onImport(batchDraft)
+    } finally {
+      setImporting(false)
     }
   }
 
@@ -1016,6 +1047,39 @@ function InputsPage({
           </button>
           <button className="secondary-button" onClick={() => setDraft(createInputDraft(payPeriod, employees, components, draft))}>
             Reset Form
+          </button>
+        </div>
+
+        <div className="section-header">
+          <div>
+            <p className="section-label">Batch Import</p>
+            <h3>Paste reusable CSV templates</h3>
+          </div>
+        </div>
+
+        <div className="editor-grid">
+          <label>
+            Batch Source File
+            <input aria-label="Batch Source File" value={batchDraft.sourceFile} onChange={(event) => setBatchDraft({ ...batchDraft, sourceFile: event.target.value })} />
+          </label>
+          <label>
+            Template Hint
+            <input aria-label="Template Hint" value="employeeCode,componentCode,amount,sourcePeriod" readOnly />
+          </label>
+        </div>
+
+        <label className="textarea-label">
+          Batch CSV
+          <textarea
+            aria-label="Batch CSV"
+            value={batchDraft.csvText}
+            onChange={(event) => setBatchDraft({ ...batchDraft, csvText: event.target.value })}
+          />
+        </label>
+
+        <div className="button-row">
+          <button className="primary-button" disabled={importing} onClick={handleImport}>
+            {importing ? 'Importing…' : 'Import Batch'}
           </button>
         </div>
       </article>

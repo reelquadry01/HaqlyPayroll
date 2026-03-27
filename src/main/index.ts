@@ -35,6 +35,7 @@ function registerHandlers() {
   ipcMain.handle('haqly:structures:update', (_event, companyId: string, componentCode: string, payload, userId: string) => services.structures.update(companyId, componentCode, payload, userId))
   ipcMain.handle('haqly:inputs:list', (_event, companyId: string, payPeriod: string) => services.inputs.list(companyId, payPeriod))
   ipcMain.handle('haqly:inputs:save', (_event, companyId: string, payload, userId: string) => services.inputs.save(companyId, payload, userId))
+  ipcMain.handle('haqly:inputs:import-csv', (_event, companyId: string, payload, userId: string) => services.inputs.importCsv(companyId, payload, userId))
   ipcMain.handle('haqly:payroll-runs:generate', (_event, companyId: string, payPeriod: string) => services.payrollRuns.generate(companyId, payPeriod))
   ipcMain.handle('haqly:payroll-runs:list', (_event, companyId: string) => services.payrollRuns.list(companyId))
   ipcMain.handle('haqly:payroll-runs:get', (_event, runId: string) => services.payrollRuns.getById(runId))

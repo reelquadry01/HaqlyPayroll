@@ -182,6 +182,12 @@ function createFakeApi(
         ...payload,
         companyId,
         validationStatus: 'valid'
+      })),
+      importCsv: vi.fn(() => ({
+        batchId: 'batch-new',
+        importedCount: 2,
+        invalidCount: 0,
+        status: 'validated'
       }))
     },
     payrollRuns: {
@@ -615,6 +621,54 @@ describe('App', () => {
       'user-approver'
     )
     expect(await screen.findByText(/loan record saved/i)).toBeInTheDocument()
+  })
+
+  it('lets payroll operators import a CSV batch from the payroll inputs workspace', async () => {
+    const user = userEvent.setup()
+    const api = createFakeApi('approver')
+    api.inputs.list = vi
+      .fn()
+      .mockReturnValueOnce({
+        lines: [{ employeeId: 'emp-chidi', payPeriod: '2026-04', componentCode: 'BONUS', amount: 120_000, validationStatus: 'valid' }],
+        batches: [{ id: 'batch-apr-2026', sourceFile: 'april-2026-inputs.xlsx', status: 'validated', createdAt: '2026-04-28T10:00:00Z' }]
+      })
+      .mockReturnValue({
+        lines: [
+          { employeeId: 'emp-chidi', payPeriod: '2026-04', componentCode: 'BONUS', amount: 120_000, validationStatus: 'valid' },
+          { employeeId: 'emp-aisha', payPeriod: '2026-04', componentCode: 'BONUS', amount: 45_000, validationStatus: 'valid' }
+        ],
+        batches: [
+          { id: 'batch-new', sourceFile: 'bonus-template.csv', status: 'validated', createdAt: '2026-04-30T10:00:00Z' },
+          { id: 'batch-apr-2026', sourceFile: 'april-2026-inputs.xlsx', status: 'validated', createdAt: '2026-04-28T10:00:00Z' }
+        ]
+      })
+    window.haqlyApi = api
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+    await user.click(screen.getByRole('button', { name: /payroll inputs/i }))
+    await user.clear(screen.getByLabelText(/batch source file/i))
+    await user.type(screen.getByLabelText(/batch source file/i), 'bonus-template.csv')
+    await user.clear(screen.getByLabelText(/batch csv/i))
+    await user.type(
+      screen.getByLabelText(/batch csv/i),
+      'employeeCode,componentCode,amount,sourcePeriod{enter}ABJ-2101,BONUS,45000,2026-04{enter}LAG-4492,OVERTIME,25000,'
+    )
+    await user.click(screen.getByRole('button', { name: /import batch/i }))
+
+    expect(api.inputs.importCsv).toHaveBeenCalledWith(
+      'company-demo',
+      expect.objectContaining({
+        payPeriod: '2026-04',
+        sourceFile: 'bonus-template.csv'
+      }),
+      'user-approver'
+    )
+    expect(await screen.findByText(/import batch saved/i)).toBeInTheDocument()
   })
 
   it('lets payroll operators switch pay periods and generates a run when the selected period has no existing payroll', async () => {

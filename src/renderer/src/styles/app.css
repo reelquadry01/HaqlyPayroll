@@ -53,6 +53,8 @@ button, input, select { font: inherit; }
 .company-selector-card:hover { background: linear-gradient(135deg, rgba(13,37,93,0.08), rgba(159,212,200,0.18)); }
 .login-card label, .editor-grid label { display: grid; gap: 8px; color: var(--ink-soft); }
 .login-card input, .editor-grid input, .editor-grid select { border: 1px solid rgba(13,37,93,0.08); background: var(--paper); border-radius: 14px; padding: 14px 16px; }
+.textarea-label { display: grid; gap: 8px; color: var(--ink-soft); }
+.textarea-label textarea { min-height: 148px; resize: vertical; border: 1px solid rgba(13,37,93,0.08); background: white; border-radius: 16px; padding: 14px 16px; font: inherit; }
 .amount-input-label { display: grid; min-width: 160px; }
 .amount-input-label input { border: 1px solid rgba(13,37,93,0.08); background: white; border-radius: 14px; padding: 12px 14px; }
 .toggle-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }

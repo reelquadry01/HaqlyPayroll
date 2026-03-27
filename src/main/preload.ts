@@ -20,7 +20,8 @@ const api: HaqlyApi = {
   },
   inputs: {
     list: (companyId, payPeriod) => ipcRenderer.invoke('haqly:inputs:list', companyId, payPeriod),
-    save: (companyId, payload, userId) => ipcRenderer.invoke('haqly:inputs:save', companyId, payload, userId)
+    save: (companyId, payload, userId) => ipcRenderer.invoke('haqly:inputs:save', companyId, payload, userId),
+    importCsv: (companyId, payload, userId) => ipcRenderer.invoke('haqly:inputs:import-csv', companyId, payload, userId)
   },
   payrollRuns: {
     generate: (companyId, payPeriod) => ipcRenderer.invoke('haqly:payroll-runs:generate', companyId, payPeriod),
