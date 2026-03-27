@@ -4,10 +4,12 @@
   "description": "HAQLY Payroll desktop application for Nigeria-first payroll processing.",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "npm run rebuild:native:electron && electron-vite dev",
     "build": "electron-vite build",
-    "preview": "electron-vite preview",
-    "test": "vitest run",
+    "preview": "npm run rebuild:native:electron && electron-vite preview",
+    "rebuild:native:electron": "electron-rebuild -f -w better-sqlite3",
+    "rebuild:native:node": "npm rebuild better-sqlite3",
+    "test": "npm run rebuild:native:node && vitest run",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
     "db:generate": "drizzle-kit generate"
@@ -48,6 +50,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
+    "@electron/rebuild": "^4.0.3",
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
