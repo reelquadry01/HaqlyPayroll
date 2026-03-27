@@ -154,7 +154,22 @@ function createFakeApi(
         componentName: assignment.componentCode === 'BASIC' ? 'Basic Salary' : 'Housing Allowance',
         amount: assignment.amount,
         activeFrom: '2026-01-01'
-      })))
+      }))),
+      create: vi.fn((_companyId, payload) => ({
+        id: 'emp-new',
+        employeeCode: payload.employeeCode,
+        fullName: payload.fullName,
+        department: payload.department,
+        branch: payload.branch,
+        roleTitle: payload.roleTitle,
+        bankName: payload.bankName,
+        accountNumber: payload.accountNumber,
+        tin: payload.tin,
+        rsaNumber: payload.rsaNumber,
+        status: payload.status,
+        hireDate: payload.hireDate,
+        payAssignments: []
+      }))
     },
     structures: {
       get: vi.fn(() => ({
@@ -170,6 +185,10 @@ function createFakeApi(
         companyId,
         code: componentCode,
         kind: componentCode === 'COOP' ? 'deduction' : 'earning',
+        ...payload
+      })),
+      create: vi.fn((companyId, payload) => ({
+        companyId,
         ...payload
       }))
     },
@@ -292,6 +311,13 @@ describe('App', () => {
     expect(await screen.findByText(/select company/i)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /northwind services nigeria/i }))
     expect(await screen.findByText(/2026 nigeria tax pack active/i)).toBeInTheDocument()
+  })
+
+  it('shows HAQLY-only branding on the sign-in screen', () => {
+    render(<App />)
+
+    expect(screen.getByRole('heading', { name: /haqly payroll/i })).toBeInTheDocument()
+    expect(screen.queryByText(/sovereign ledger/i)).not.toBeInTheDocument()
   })
 
   it('shows payroll review drill-down and approval controls for approvers', async () => {
@@ -446,6 +472,43 @@ describe('App', () => {
     expect(await screen.findByText(/compensation lines saved/i)).toBeInTheDocument()
   })
 
+  it('lets payroll operators create an employee from the employee workspace', async () => {
+    const user = userEvent.setup()
+    const api = createFakeApi('approver')
+    window.haqlyApi = api
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+    await user.click(screen.getByRole('button', { name: /^employees$/i }))
+    await user.click(screen.getByRole('button', { name: /new employee/i }))
+    await user.type(screen.getByLabelText(/new employee code/i), 'KAN-1001')
+    await user.type(screen.getByLabelText(/new full name/i), 'Ngozi Danjuma')
+    await user.type(screen.getByLabelText(/new department/i), 'Finance')
+    await user.type(screen.getByLabelText(/new branch/i), 'Kano')
+    await user.type(screen.getByLabelText(/new role title/i), 'Payroll Analyst')
+    await user.type(screen.getByLabelText(/new hire date/i), '2026-03-01')
+    await user.type(screen.getByLabelText(/new bank name/i), 'Zenith Bank')
+    await user.type(screen.getByLabelText(/new account number/i), '1029384756')
+    await user.type(screen.getByLabelText(/new tin/i), 'TIN-NGOZI')
+    await user.type(screen.getByLabelText(/new rsa number/i), 'RSA-1001')
+    await user.click(screen.getByRole('button', { name: /create employee/i }))
+
+    expect((api.employees as any).create).toHaveBeenCalledWith(
+      'company-demo',
+      expect.objectContaining({
+        employeeCode: 'KAN-1001',
+        fullName: 'Ngozi Danjuma',
+        department: 'Finance'
+      }),
+      'user-approver'
+    )
+    expect(await screen.findByText(/employee created/i)).toBeInTheDocument()
+  }, 10000)
+
   it('shows export success feedback and refreshed history after generating a report file', async () => {
     const user = userEvent.setup()
     const exportJobs = [{ id: 'existing-export', type: 'journal_csv', filePath: 'old-journal.csv', createdAt: '2026-04-30T08:30:00Z' }]
@@ -542,6 +605,39 @@ describe('App', () => {
       'user-approver'
     )
     expect(await screen.findByText(/salary component saved/i)).toBeInTheDocument()
+  })
+
+  it('lets payroll operators create a salary component from the structures workspace', async () => {
+    const user = userEvent.setup()
+    const api = createFakeApi('approver')
+    window.haqlyApi = api
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/email/i), 'approver@haqly.local')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByText(/haqly demo industries/i)
+    await user.click(screen.getByRole('button', { name: /^structures$/i }))
+    await user.click(screen.getByRole('button', { name: /new component/i }))
+    await user.type(screen.getByLabelText(/new component code/i), 'SHIFT')
+    await user.type(screen.getByLabelText(/new component name/i), 'Shift Allowance')
+    await user.type(screen.getByLabelText(/new category/i), 'allowance')
+    await user.selectOptions(screen.getByLabelText(/new component kind/i), 'earning')
+    await user.type(screen.getByLabelText(/new gl code/i), '5099')
+    await user.click(screen.getByRole('button', { name: /create component/i }))
+
+    expect((api.structures as any).create).toHaveBeenCalledWith(
+      'company-demo',
+      expect.objectContaining({
+        code: 'SHIFT',
+        name: 'Shift Allowance',
+        category: 'allowance',
+        kind: 'earning'
+      }),
+      'user-approver'
+    )
+    expect(await screen.findByText(/salary component created/i)).toBeInTheDocument()
   })
 
   it('lets payroll operators create a staff loan from the loans workspace', async () => {

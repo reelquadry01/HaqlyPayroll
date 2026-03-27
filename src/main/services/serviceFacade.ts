@@ -7,9 +7,11 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import * as XLSX from 'xlsx'
 
 import type {
+  EmployeeCreateInput,
   EmployeePayAssignmentUpdateInput,
   EmployeeUpdateInput,
   LoanCreateInput,
+  PayComponentCreateInput,
   LoanStatus,
   PayComponentUpdateInput,
   PayrollInputImportInput,
@@ -121,6 +123,14 @@ function mapEmployee(row: Record<string, unknown>) {
     nhfFlag: Boolean(row.nhfFlag),
     payAssignments: []
   }
+}
+
+function readEmployeeById(context: DatabaseContext, employeeId: string) {
+  return mapEmployee(
+    context.db
+      .prepare('SELECT id, employee_code AS employeeCode, full_name AS fullName, department, branch, role_title AS roleTitle, hire_date AS hireDate, status, bank_name AS bankName, account_number AS accountNumber, tin, rsa_number AS rsaNumber, pfa_name AS pfaName, nhf_flag AS nhfFlag FROM employees WHERE id = ?')
+      .get(employeeId) as Record<string, unknown>
+  )
 }
 
 function readEmployeePayAssignments(context: DatabaseContext, employeeId: string) {
@@ -400,6 +410,44 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
             }
           })
       },
+      create(companyId: string, payload: EmployeeCreateInput, userId: string) {
+        const role = getUserRole(database, userId)
+        if (!['admin', 'payroll_officer', 'approver'].includes(role)) {
+          throw new Error('Permission denied: user cannot create employees')
+        }
+
+        const employeeId = randomUUID()
+        database.db
+          .prepare(
+            `INSERT INTO employees
+             (id, company_id, employee_code, full_name, department, branch, role_title, hire_date, status, bank_name, account_number, tin, rsa_number, pfa_name, nhf_flag)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            employeeId,
+            companyId,
+            payload.employeeCode.trim(),
+            payload.fullName.trim(),
+            payload.department.trim(),
+            payload.branch.trim(),
+            payload.roleTitle.trim(),
+            payload.hireDate.trim(),
+            payload.status.trim(),
+            payload.bankName.trim() || null,
+            payload.accountNumber.trim() || null,
+            payload.tin.trim() || null,
+            payload.rsaNumber.trim() || null,
+            null,
+            0
+          )
+
+        writeAuditLog(database, companyId, 'employee.created', 'employee', employeeId, userId, payload)
+
+        return {
+          ...readEmployeeById(database, employeeId),
+          payAssignments: readEmployeePayAssignments(database, employeeId)
+        }
+      },
       update(companyId: string, employeeId: string, payload: EmployeeUpdateInput, userId: string) {
         const role = getUserRole(database, userId)
         if (!['admin', 'payroll_officer', 'approver'].includes(role)) {
@@ -432,14 +480,8 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
 
         writeAuditLog(database, companyId, 'employee.updated', 'employee', employeeId, userId, payload)
 
-        const updatedEmployee = mapEmployee(
-          database.db
-            .prepare('SELECT id, employee_code AS employeeCode, full_name AS fullName, department, branch, role_title AS roleTitle, hire_date AS hireDate, status, bank_name AS bankName, account_number AS accountNumber, tin, rsa_number AS rsaNumber, pfa_name AS pfaName, nhf_flag AS nhfFlag FROM employees WHERE id = ?')
-            .get(employeeId) as Record<string, unknown>
-        )
-
         return {
-          ...updatedEmployee,
+          ...readEmployeeById(database, employeeId),
           payAssignments: readEmployeePayAssignments(database, employeeId)
         }
       },
@@ -475,6 +517,42 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
           policy: readActivePolicy(database, companyId),
           components: database.db.prepare('SELECT * FROM pay_components WHERE company_id = ? ORDER BY kind ASC, code ASC').all(companyId).map((row) => mapComponent(row as Record<string, unknown>))
         }
+      },
+      create(companyId: string, payload: PayComponentCreateInput, userId: string) {
+        const role = getUserRole(database, userId)
+        if (!['admin', 'payroll_officer', 'approver'].includes(role)) {
+          throw new Error('Permission denied: user cannot create salary structures')
+        }
+
+        database.db
+          .prepare(
+            `INSERT INTO pay_components
+             (code, company_id, name, category, kind, recurring, taxable, pensionable, nhf_applicable, calculation_basis, default_amount, gl_code)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            payload.code.trim(),
+            companyId,
+            payload.name.trim(),
+            payload.category.trim(),
+            payload.kind.trim(),
+            payload.recurring ? 1 : 0,
+            payload.taxable ? 1 : 0,
+            payload.pensionable ? 1 : 0,
+            payload.nhfApplicable ? 1 : 0,
+            payload.calculationBasis,
+            null,
+            payload.glCode?.trim() || null
+          )
+
+        writeAuditLog(database, companyId, 'pay_component.created', 'pay_component', payload.code.trim(), userId, payload)
+
+        const created = database.db.prepare('SELECT * FROM pay_components WHERE company_id = ? AND code = ?').get(companyId, payload.code.trim())
+        if (!created) {
+          throw new Error(`Unable to find pay component ${payload.code}`)
+        }
+
+        return mapComponent(created as Record<string, unknown>)
       },
       update(companyId: string, componentCode: string, payload: PayComponentUpdateInput, userId: string) {
         const role = getUserRole(database, userId)

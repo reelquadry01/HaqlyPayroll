@@ -55,6 +55,11 @@ export interface PayComponentUpdateInput {
   glCode?: string
 }
 
+export interface PayComponentCreateInput extends PayComponentUpdateInput {
+  code: string
+  kind: string
+}
+
 export interface PayrollRunSummary {
   id: string
   payPeriod?: string
@@ -189,6 +194,11 @@ export interface EmployeeUpdateInput {
   status: string
 }
 
+export interface EmployeeCreateInput extends EmployeeUpdateInput {
+  employeeCode: string
+  hireDate: string
+}
+
 export interface HaqlyApi {
   auth: {
     login(email: string, password: string): Promise<AuthSession> | AuthSession
@@ -198,11 +208,13 @@ export interface HaqlyApi {
   }
   employees: {
     list(companyId: string): Promise<EmployeeRecord[]> | EmployeeRecord[]
+    create(companyId: string, payload: EmployeeCreateInput, userId: string): Promise<EmployeeRecord> | EmployeeRecord
     update(companyId: string, employeeId: string, payload: EmployeeUpdateInput, userId: string): Promise<EmployeeRecord> | EmployeeRecord
     updatePayAssignments(companyId: string, employeeId: string, payload: EmployeePayAssignmentUpdateInput[], userId: string): Promise<EmployeePayAssignment[]> | EmployeePayAssignment[]
   }
   structures: {
     get(companyId: string): Promise<StructureData> | StructureData
+    create(companyId: string, payload: PayComponentCreateInput, userId: string): Promise<StructureData['components'][number]> | StructureData['components'][number]
     update(companyId: string, componentCode: string, payload: PayComponentUpdateInput, userId: string): Promise<StructureData['components'][number]> | StructureData['components'][number]
   }
   inputs: {

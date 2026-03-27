@@ -191,6 +191,49 @@ describe('service facade integration', () => {
     expect(updated.rsaNumber).toBe('RSA-001-ALT')
   })
 
+  it('creates an employee through the service layer and exposes it in employee listings', () => {
+    const database = createDatabaseContext({ filePath: ':memory:' })
+    bootstrapDatabase(database)
+    seedDemoData(database)
+
+    const services = createServiceFacade({
+      database,
+      exportDir
+    })
+
+    const created = (services.employees as any).create(
+      'company-demo',
+      {
+        employeeCode: 'KAN-1001',
+        fullName: 'Ngozi Danjuma',
+        department: 'Finance',
+        branch: 'Kano',
+        roleTitle: 'Payroll Analyst',
+        hireDate: '2026-03-01',
+        status: 'active',
+        bankName: 'Zenith Bank',
+        accountNumber: '1029384756',
+        tin: 'TIN-NGOZI',
+        rsaNumber: 'RSA-1001'
+      },
+      'user-payroll'
+    )
+
+    const employees = services.employees.list('company-demo')
+
+    expect(created.employeeCode).toBe('KAN-1001')
+    expect(created.fullName).toBe('Ngozi Danjuma')
+    expect(employees).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          employeeCode: 'KAN-1001',
+          fullName: 'Ngozi Danjuma',
+          department: 'Finance'
+        })
+      ])
+    )
+  })
+
   it('saves a manual variable payroll input and exposes it through the input center', () => {
     const database = createDatabaseContext({ filePath: ':memory:' })
     bootstrapDatabase(database)
@@ -263,6 +306,47 @@ describe('service facade integration', () => {
         code: 'BONUS',
         name: 'Quarterly Performance Bonus',
         glCode: '5015'
+      })
+    )
+  })
+
+  it('creates a pay component through the structures service and exposes it in the structures catalog', () => {
+    const database = createDatabaseContext({ filePath: ':memory:' })
+    bootstrapDatabase(database)
+    seedDemoData(database)
+
+    const services = createServiceFacade({
+      database,
+      exportDir
+    })
+
+    const created = (services.structures as any).create(
+      'company-demo',
+      {
+        code: 'SHIFT',
+        name: 'Shift Allowance',
+        category: 'allowance',
+        kind: 'earning',
+        recurring: false,
+        taxable: true,
+        pensionable: false,
+        nhfApplicable: false,
+        calculationBasis: 'fixed',
+        glCode: '5099'
+      },
+      'user-payroll'
+    )
+
+    const refreshed = services.structures.get('company-demo').components.find((component) => component.code === 'SHIFT')
+
+    expect(created.code).toBe('SHIFT')
+    expect(created.name).toBe('Shift Allowance')
+    expect(refreshed).toEqual(
+      expect.objectContaining({
+        code: 'SHIFT',
+        name: 'Shift Allowance',
+        kind: 'earning',
+        glCode: '5099'
       })
     )
   })
