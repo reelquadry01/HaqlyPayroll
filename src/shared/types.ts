@@ -102,6 +102,7 @@ export interface ComplianceComputationInput {
   annualTaxableIncome: number
   annualPreTaxDeductions?: number
   annualReliefs?: number
+  annualRent?: number
   payrollFrequency?: number
   taxPolicy: TaxPolicyPack
 }

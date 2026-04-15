@@ -520,8 +520,48 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
         .prepare('SELECT employee_id AS employeeId, pay_period AS payPeriod, component_code AS componentCode, amount, source_period AS sourcePeriod, source_file AS sourceFile, import_batch_id AS importBatchId, validation_status AS validationStatus FROM payroll_inputs WHERE company_id = ? AND pay_period = ?')
         .all(companyId, payPeriod) as PayrollInputLine[]
 
-      const employeeResults = employees.map((employee) =>
-        calculateEmployeePayroll({
+      const activeLoans = database.db
+        .prepare('SELECT id, employee_id AS employeeId, monthly_deduction AS monthlyDeduction, type FROM loans WHERE company_id = ? AND status = ? AND start_date <= ? AND end_date >= ?')
+        .all(companyId, 'active', `${payPeriod}-31`, `${payPeriod}-01`) as Array<{ id: string; employeeId: string; monthlyDeduction: number; type: string }>
+
+      const employeeResults = employees.map((employee) => {
+        const employeeLoans = activeLoans.filter((loan) => loan.employeeId === employee.id)
+        const loanInputs: PayrollInputLine[] = employeeLoans.map((loan) => ({
+          employeeId: employee.id,
+          payPeriod,
+          componentCode: loan.type === 'salary_advance' ? 'ADVANCE' : 'LOAN',
+          amount: loan.monthlyDeduction
+        }))
+
+        // Ensure components for loans exist in the map
+        if (!componentMap['LOAN']) {
+          componentMap['LOAN'] = {
+            code: 'LOAN',
+            name: 'Loan Repayment',
+            category: 'loan',
+            kind: 'deduction',
+            recurring: false,
+            taxable: false,
+            pensionable: false,
+            nhfApplicable: false,
+            calculationBasis: 'fixed'
+          }
+        }
+        if (!componentMap['ADVANCE']) {
+          componentMap['ADVANCE'] = {
+            code: 'ADVANCE',
+            name: 'Salary Advance Repayment',
+            category: 'loan',
+            kind: 'deduction',
+            recurring: false,
+            taxable: false,
+            pensionable: false,
+            nhfApplicable: false,
+            calculationBasis: 'fixed'
+          }
+        }
+
+        return calculateEmployeePayroll({
           employee,
           payPeriod,
           components: componentMap,
@@ -531,11 +571,14 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
             componentCode: assignment.componentCode,
             amount: Number(assignment.amount)
           })),
-          variableInputs: variableInputs.filter((line) => line.employeeId === employee.id).map((line) => ({ ...line, amount: Number(line.amount) })),
+          variableInputs: [
+            ...variableInputs.filter((line) => line.employeeId === employee.id).map((line) => ({ ...line, amount: Number(line.amount) })),
+            ...loanInputs
+          ],
           taxPolicy: policy,
           payrollFrequency: company.payrollFrequency
         })
-      )
+      })
 
       const summary = {
         id: existingRun?.id ?? randomUUID(),
@@ -749,15 +792,69 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
       const employee = detail.snapshot.employees.find((candidate) => candidate.employeeId === employeeId)
       if (!employee) throw new Error('Employee payslip not found')
 
+      const profile = readEmployeeById(database, employeeId)
+      const company = database.db.prepare('SELECT name FROM companies WHERE id = ?').get(detail.companyId) as { name: string }
+
       const pdf = await PDFDocument.create()
       const page = pdf.addPage([595, 842])
       const font = await pdf.embedFont(StandardFonts.Helvetica)
-      page.drawText('HAQLY Payroll Payslip', { x: 50, y: 780, size: 24, font, color: rgb(0, 0.12, 0.3) })
-      page.drawText(`Run: ${detail.payPeriod}`, { x: 50, y: 740, size: 12, font })
-      page.drawText(`Employee ID: ${employee.employeeId}`, { x: 50, y: 720, size: 12, font })
-      page.drawText(`Gross Pay: ${formatPdfCurrency(employee.grossPay)}`, { x: 50, y: 690, size: 12, font })
-      page.drawText(`PAYE: ${formatPdfCurrency(employee.paye)}`, { x: 50, y: 670, size: 12, font })
-      page.drawText(`Net Pay: ${formatPdfCurrency(employee.netPay)}`, { x: 50, y: 650, size: 12, font })
+      const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold)
+
+      // Header
+      page.drawText(company.name, { x: 50, y: 780, size: 18, font: fontBold, color: rgb(0, 0.12, 0.3) })
+      page.drawText('Payslip', { x: 500, y: 780, size: 18, font: fontBold, color: rgb(0.4, 0.4, 0.4) })
+
+      page.drawLine({ start: { x: 50, y: 765 }, end: { x: 550, y: 765 }, thickness: 1, color: rgb(0.8, 0.8, 0.8) })
+
+      // Employee Info
+      page.drawText(`Employee: ${profile.fullName}`, { x: 50, y: 740, size: 10, font: fontBold })
+      page.drawText(`ID: ${profile.employeeCode}`, { x: 50, y: 725, size: 10, font })
+      page.drawText(`Department: ${profile.department}`, { x: 50, y: 710, size: 10, font })
+
+      page.drawText(`Period: ${detail.payPeriod}`, { x: 400, y: 740, size: 10, font: fontBold })
+      page.drawText(`Role: ${profile.roleTitle}`, { x: 400, y: 725, size: 10, font })
+
+      page.drawLine({ start: { x: 50, y: 695 }, end: { x: 550, y: 695 }, thickness: 1, color: rgb(0.8, 0.8, 0.8) })
+
+      let yCursor = 670
+      // Earnings
+      page.drawText('Earnings', { x: 50, y: yCursor, size: 12, font: fontBold })
+      page.drawText('Amount', { x: 250, y: yCursor, size: 12, font: fontBold })
+      yCursor -= 20
+
+      const earnings = [...employee.recurringLines, ...employee.variableLines].filter(l => l.kind === 'earning')
+      for (const line of earnings) {
+        page.drawText(line.name, { x: 50, y: yCursor, size: 10, font })
+        page.drawText(formatPdfCurrency(line.amount), { x: 250, y: yCursor, size: 10, font })
+        yCursor -= 15
+      }
+
+      // Deductions
+      yCursor = 670
+      page.drawText('Deductions', { x: 350, y: yCursor, size: 12, font: fontBold })
+      page.drawText('Amount', { x: 500, y: yCursor, size: 12, font: fontBold })
+      yCursor -= 20
+
+      for (const line of employee.deductionLines) {
+        page.drawText(line.name, { x: 350, y: yCursor, size: 10, font })
+        page.drawText(formatPdfCurrency(line.amount), { x: 500, y: yCursor, size: 10, font })
+        yCursor -= 15
+      }
+
+      // Totals
+      yCursor = Math.min(yCursor, 450)
+      page.drawLine({ start: { x: 50, y: yCursor + 20 }, end: { x: 550, y: yCursor + 20 }, thickness: 1, color: rgb(0.8, 0.8, 0.8) })
+
+      page.drawText('Total Gross Pay:', { x: 50, y: yCursor, size: 12, font: fontBold })
+      page.drawText(formatPdfCurrency(employee.grossPay), { x: 200, y: yCursor, size: 12, font: fontBold })
+
+      page.drawText('Total Deductions:', { x: 350, y: yCursor, size: 12, font: fontBold })
+      page.drawText(formatPdfCurrency(employee.deductions), { x: 500, y: yCursor, size: 12, font: fontBold })
+
+      yCursor -= 30
+      page.drawText('NET PAY:', { x: 350, y: yCursor, size: 14, font: fontBold, color: rgb(0, 0.4, 0) })
+      page.drawText(formatPdfCurrency(employee.netPay), { x: 500, y: yCursor, size: 14, font: fontBold, color: rgb(0, 0.4, 0) })
+
       const filePath = join(exportDir, `${detail.payPeriod}-${employeeId}-payslip.pdf`)
       writeFileSync(filePath, await pdf.save())
       database.db.prepare('INSERT INTO export_jobs (id, company_id, run_id, type, file_path, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(randomUUID(), detail.companyId, runId, 'payslip_pdf', filePath, new Date().toISOString())
@@ -797,8 +894,8 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
         database.db
           .prepare(
             `INSERT INTO employees
-             (id, company_id, employee_code, full_name, department, branch, role_title, employee_type, hire_date, status, bank_name, account_number, tin, rsa_number, pfa_name, nhf_flag)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             (id, company_id, employee_code, full_name, department, branch, role_title, employee_type, hire_date, status, bank_name, account_number, tin, rsa_number, pfa_name, nhf_flag, annual_rent)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .run(
             employeeId,
@@ -816,7 +913,8 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
             payload.tin.trim() || null,
             payload.rsaNumber.trim() || null,
             null,
-            0
+            0,
+            payload.annualRent ?? null
           )
 
         writeAuditLog(database, companyId, 'employee.created', 'employee', employeeId, userId, payload)
@@ -841,7 +939,7 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
         }
 
         database.db
-          .prepare('UPDATE employees SET full_name = ?, department = ?, branch = ?, role_title = ?, employee_type = ?, bank_name = ?, account_number = ?, tin = ?, rsa_number = ?, status = ? WHERE id = ? AND company_id = ?')
+          .prepare('UPDATE employees SET full_name = ?, department = ?, branch = ?, role_title = ?, employee_type = ?, bank_name = ?, account_number = ?, tin = ?, rsa_number = ?, status = ?, annual_rent = ? WHERE id = ? AND company_id = ?')
           .run(
             payload.fullName.trim(),
             payload.department.trim(),
@@ -853,6 +951,7 @@ export function createServiceFacade(options: ServiceFacadeOptions) {
             payload.tin.trim() || null,
             payload.rsaNumber.trim() || null,
             payload.status.trim(),
+            payload.annualRent ?? null,
             employeeId,
             companyId
           )

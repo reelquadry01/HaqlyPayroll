@@ -79,6 +79,7 @@ export function calculateEmployeePayroll(input: PayrollComputationInput): Payrol
   const taxResult = calculateAnnualPaye({
     annualTaxableIncome,
     annualPreTaxDeductions,
+    annualRent: input.employee.annualRent,
     taxPolicy: input.taxPolicy,
     payrollFrequency
   })

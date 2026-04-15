@@ -259,6 +259,7 @@ export interface EmployeeUpdateInput {
   tin: string
   rsaNumber: string
   status: string
+  annualRent?: number
 }
 
 export interface EmployeeCreateInput extends EmployeeUpdateInput {

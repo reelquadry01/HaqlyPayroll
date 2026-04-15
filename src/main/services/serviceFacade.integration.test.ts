@@ -270,8 +270,8 @@ describe('service facade integration', () => {
     expect(detail.variance).toEqual({
       previousPayPeriod: '2026-03',
       grossPayDelta: 520_000,
-      netPayDelta: 400_580,
-      payeDelta: 124_920
+      netPayDelta: 375_580,
+      payeDelta: 109_920
     })
   })
 
