@@ -18,7 +18,8 @@ function createEmployeeDraft(employee: EmployeeRecord): EmployeeUpdateInput {
     accountNumber: employee.accountNumber ?? '',
     tin: employee.tin ?? '',
     rsaNumber: employee.rsaNumber ?? '',
-    status: employee.status
+    status: employee.status,
+    annualRent: (employee as any).annualRent ?? 0
   }
 }
 
@@ -35,7 +36,8 @@ function createEmployeeCreateDraft(): EmployeeCreateInput {
     accountNumber: '',
     tin: '',
     rsaNumber: '',
-    status: 'active'
+    status: 'active',
+    annualRent: 0
   }
 }
 
@@ -230,6 +232,10 @@ export function EmployeesPage({
               <option value="resigned">Resigned</option>
             </select>
           </label>
+          <label>
+            Annual Rent (for Rent Relief)
+            <input aria-label="Annual Rent" type="number" value={draft.annualRent} onChange={(event) => setDraft({ ...draft, annualRent: Number(event.target.value) })} />
+          </label>
         </div>
 
         <div className="button-row">
@@ -360,6 +366,10 @@ export function EmployeesPage({
               <label>
                 RSA Number
                 <input aria-label="New RSA Number" value={createDraft.rsaNumber} onChange={(event) => setCreateDraft({ ...createDraft, rsaNumber: event.target.value })} />
+              </label>
+              <label>
+                Annual Rent
+                <input aria-label="New Annual Rent" type="number" value={createDraft.annualRent} onChange={(event) => setCreateDraft({ ...createDraft, annualRent: Number(event.target.value) })} />
               </label>
             </div>
 

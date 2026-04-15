@@ -109,9 +109,9 @@ const components: Record<string, PayComponentDefinition> = {
 }
 
 describe('calculateEmployeePayroll', () => {
-  it('recalculates PAYE when a taxable bonus lands in the payroll month', () => {
+  it('recalculates PAYE with Rent Relief when a taxable bonus lands in the payroll month', () => {
     const result = calculateEmployeePayroll({
-      employee,
+      employee: { ...employee, annualRent: 1_200_000 },
       payPeriod: '2026-04',
       components,
       recurringInputs: [
@@ -125,11 +125,24 @@ describe('calculateEmployeePayroll', () => {
       taxPolicy: policy
     })
 
+    // Gross = 1,270,000. Taxable Gross = 1,220,000
+    // Recurring Taxable Gross = 1,100,000. Variable Taxable Gross = 120,000
+    // Annual Taxable Gross = 1,100,000 * 12 + 120,000 = 13,200,000 + 120,000 = 13,320,000
+    // Pre-tax deductions (Pension 8% of BASIC+HOUSING) = 0.08 * (950k + 150k) = 88,000
+    // Annual Pre-tax = 88,000 * 12 = 1,056,000
+    // Rent Relief = min(0.2 * 1.2M, 500k) = 240,000
+    // Chargeable Income = 13,320,000 - 1,056,000 - 240,000 = 12,024,000
+    // Band 1: 800k @ 0% = 0
+    // Band 2: 2.2M @ 15% = 330,000
+    // Band 3: 9M @ 18% = 1,620,000
+    // Band 4: (12,024,000 - 12,000,000) = 24,000 @ 21% = 5,040
+    // Annual Tax = 1,955,040
+    // Monthly PAYE = 162,920
     expect(result.grossPay).toBe(1_270_000)
     expect(result.taxableGross).toBe(1_220_000)
-    expect(result.paye).toBe(167_120)
-    expect(result.deductions).toBe(280_120)
-    expect(result.netPay).toBe(989_880)
+    expect(result.paye).toBe(162_920)
+    expect(result.deductions).toBe(162_920 + 88_000 + 25_000) // PAYE + Pension + NHF
+    expect(result.netPay).toBe(1_270_000 - result.deductions)
   })
 
   it('tracks arrears by source period and includes them in current-period tax', () => {

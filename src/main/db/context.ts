@@ -257,6 +257,7 @@ export function bootstrapDatabase(context: DatabaseContext): void {
   `)
 
   ensureColumn(context, 'employees', 'employee_type', "TEXT NOT NULL DEFAULT 'full_time'")
+  ensureColumn(context, 'employees', 'annual_rent', 'REAL')
   context.db.prepare("UPDATE employees SET employee_type = 'full_time' WHERE employee_type IS NULL OR employee_type = ''").run()
 }
 
@@ -378,12 +379,12 @@ export function seedDemoData(context: DatabaseContext): void {
   }
 
   const insertEmployee = context.db.prepare(
-    'INSERT INTO employees (id, company_id, employee_code, full_name, department, branch, role_title, employee_type, hire_date, status, bank_name, account_number, tin, rsa_number, pfa_name, nhf_flag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO employees (id, company_id, employee_code, full_name, department, branch, role_title, employee_type, hire_date, status, bank_name, account_number, tin, rsa_number, pfa_name, nhf_flag, annual_rent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   )
   for (const employee of [
-    ['emp-chidi', companyId, 'LAG-4492', 'Chidi Okoro', 'Engineering', 'Lagos HQ', 'Engineering Analyst', 'full_time', '2024-02-12', 'active', 'Access Bank', '0123456789', 'TIN-CHIDI', 'RSA-001', 'Leadway PFA', 1],
-    ['emp-aisha', companyId, 'ABJ-2101', 'Aisha Abubakar', 'Operations', 'Abuja', 'Operations Officer', 'contract', '2023-09-03', 'active', 'GTBank', '1234567890', 'TIN-AISHA', 'RSA-002', 'Stanbic IBTC PFA', 1],
-    ['emp-femi', companyId, 'LAG-1120', 'Femi Adebayo', 'Legal', 'Lagos HQ', 'Legal Counsel', 'full_time', '2022-04-18', 'active', 'UBA', '2222333344', null, 'RSA-003', 'Premium PFA', 0]
+    ['emp-chidi', companyId, 'LAG-4492', 'Chidi Okoro', 'Engineering', 'Lagos HQ', 'Engineering Analyst', 'full_time', '2024-02-12', 'active', 'Access Bank', '0123456789', 'TIN-CHIDI', 'RSA-001', 'Leadway PFA', 1, 1_200_000],
+    ['emp-aisha', companyId, 'ABJ-2101', 'Aisha Abubakar', 'Operations', 'Abuja', 'Operations Officer', 'contract', '2023-09-03', 'active', 'GTBank', '1234567890', 'TIN-AISHA', 'RSA-002', 'Stanbic IBTC PFA', 1, 800_000],
+    ['emp-femi', companyId, 'LAG-1120', 'Femi Adebayo', 'Legal', 'Lagos HQ', 'Legal Counsel', 'full_time', '2022-04-18', 'active', 'UBA', '2222333344', null, 'RSA-003', 'Premium PFA', 0, 2_400_000]
   ] as const) {
     insertEmployee.run(...employee)
   }
